@@ -53,7 +53,7 @@ from xiaomi_capture import (
 
 app = Flask(__name__)
 LOCAL_TZ       = ZoneInfo("Asia/Kuala_Lumpur")
-EVENT_LOOKBACK = 600  # 10-minute lookback window (seconds)
+EVENT_LOOKBACK = int(os.getenv("EVENT_LOOKBACK", "600"))
 
 
 # ── GCS session ────────────────────────────────────────────────────────────────
