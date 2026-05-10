@@ -41,11 +41,11 @@ from core.notifier import TelegramNotifier
 from core.models import AnalysisResult
 from utils.logger import setup_logger, get_logger
 
-# Import Xiaomi capture utilities from test_studio_cam / xiaomi_capture
+# Import Xiaomi capture utilities from xiaomi_capture
 from xiaomi_capture import (
     _camera_api, _make_http_session, _camera_api_url,
-    _silent_refresh, _save_session, extract_segment,
-    get_video_duration_from_url, SEGMENT_SECS,
+    _silent_refresh, _save_session, download_thumbnail,
+    extract_segment, get_video_duration_from_url, SEGMENT_SECS,
 )
 
 # ── constants ─────────────────────────────────────────────────────────────────
@@ -148,6 +148,8 @@ def get_events(state: dict, cam: dict, start_ms: int, end_ms: int) -> list[dict]
     return all_events
 
 
+# ── frame capture ─────────────────────────────────────────────────────────────
+
 def get_m3u8_url(state: dict, cam: dict, event: dict) -> str:
     """Get the M3U8 video URL for an event."""
     return _camera_api_url(state, settings.STUDIO_CAMERA_HOST, "common/app/m3u8", {
@@ -160,11 +162,10 @@ def get_m3u8_url(state: dict, cam: dict, event: dict) -> str:
     })
 
 
-# ── frame capture ─────────────────────────────────────────────────────────────
-
 def capture_event_frames(state: dict, cam: dict, event: dict) -> dict:
     """
-    Extract frames from an event video.
+    Extract frames from an event video for AI analysis.
+    Downloads thumbnail as a fast fallback if video extraction yields nothing.
     Returns: {fileId, eventType, time, duration, segments: [...], frames, dir}
     """
     fid    = event["fileId"]
@@ -198,6 +199,15 @@ def capture_event_frames(state: dict, cam: dict, event: dict) -> dict:
             if frames:
                 segments_captured.append({"label": lbl, "frames": frames})
             mark += 60.0
+
+    # Fallback: use thumbnail if video extraction yielded nothing
+    if not segments_captured:
+        first_dir = os.path.join(ev_dir, "first")
+        os.makedirs(first_dir, exist_ok=True)
+        thumb_path = os.path.join(first_dir, "thumb_00.jpg")
+        saved = download_thumbnail(state, event, thumb_path)
+        if saved:
+            segments_captured.append({"label": "first", "frames": [saved]})
 
     total = sum(len(s["frames"]) for s in segments_captured)
     return {

@@ -14,16 +14,16 @@ Pipeline entry points
 from __future__ import annotations
 
 import glob
-import io
 import os
 import json
+import tempfile
 import time
 import base64
 import hashlib
 import datetime
 import pickle
-import tempfile
 import requests
+import cv2
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -405,37 +405,35 @@ def _segments_for_window(segments: list, start_sec: float,
 
 def _frames_from_raw(raw_bytes: bytes, label: str, out_dir: str,
                       max_frames: int = SEGMENT_SECS * FRAME_FPS) -> list[str]:
-    """Extract frames from raw video bytes using PyAV (no subprocess needed)."""
-    import av
-
+    """Write decrypted segment bytes to temp file, extract frames with cv2."""
     os.makedirs(out_dir, exist_ok=True)
     saved = []
-
+    with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
+        tmp.write(raw_bytes)
+        tmp_path = tmp.name
     try:
-        container = av.open(io.BytesIO(raw_bytes))
-        video_stream = next((s for s in container.streams if s.type == "video"), None)
-        if video_stream is None:
+        cap = cv2.VideoCapture(tmp_path)
+        if not cap.isOpened():
             return []
-
-        src_fps = float(video_stream.average_rate or 25)
+        src_fps    = cap.get(cv2.CAP_PROP_FPS) or 25
         frame_step = max(1, int(src_fps / FRAME_FPS))
-
-        frame_idx = 0
-        cap_idx = 0
-        for frame in container.decode(video_stream):
-            if cap_idx >= max_frames:
+        frame_idx = cap_idx = 0
+        while cap_idx < max_frames:
+            ret, frame = cap.read()
+            if not ret:
                 break
             if frame_idx % frame_step == 0:
                 fname = os.path.join(out_dir, f"{label}_{cap_idx:02d}.jpg")
-                frame.to_image().save(fname, "JPEG", quality=90)
+                cv2.imwrite(fname, frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
                 saved.append(fname)
                 cap_idx += 1
             frame_idx += 1
-
-        container.close()
-    except Exception:
-        pass
-
+        cap.release()
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
     return saved
 
 

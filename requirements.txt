@@ -9,4 +9,4 @@ Flask>=3.0.0
 Werkzeug>=3.0.0
 micloud>=0.3.0
 pycryptodome>=3.19.0
-av>=10.0.0
+opencv-python-headless>=4.8.0
