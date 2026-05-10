@@ -403,12 +403,18 @@ def _segments_for_window(segments: list, start_sec: float,
             if s["start"] + s["duration"] > start_sec and s["start"] < end_sec]
 
 
+def _is_black_frame(frame) -> bool:
+    """Return True if the frame is essentially all black (failed decode)."""
+    return frame.mean() < 3.0
+
+
 def _frames_from_raw(raw_bytes: bytes, label: str, out_dir: str,
                       max_frames: int = SEGMENT_SECS * FRAME_FPS) -> list[str]:
-    """Write decrypted segment bytes to temp file, extract frames with cv2."""
+    """Write decrypted MPEG-TS segment bytes to temp file, extract frames with cv2."""
     os.makedirs(out_dir, exist_ok=True)
     saved = []
-    with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
+    # Use .ts extension — raw HLS segments are MPEG-TS, not MP4
+    with tempfile.NamedTemporaryFile(suffix=".ts", delete=False) as tmp:
         tmp.write(raw_bytes)
         tmp_path = tmp.name
     try:
@@ -423,9 +429,10 @@ def _frames_from_raw(raw_bytes: bytes, label: str, out_dir: str,
             if not ret:
                 break
             if frame_idx % frame_step == 0:
-                fname = os.path.join(out_dir, f"{label}_{cap_idx:02d}.jpg")
-                cv2.imwrite(fname, frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
-                saved.append(fname)
+                if not _is_black_frame(frame):
+                    fname = os.path.join(out_dir, f"{label}_{cap_idx:02d}.jpg")
+                    cv2.imwrite(fname, frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
+                    saved.append(fname)
                 cap_idx += 1
             frame_idx += 1
         cap.release()
