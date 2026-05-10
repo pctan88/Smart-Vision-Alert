@@ -43,7 +43,7 @@ class TelegramNotifier:
         self.token = settings.TELEGRAM_BOT_TOKEN
         self.chat_id = settings.TELEGRAM_CHAT_ID
         self.api_url = self.API_BASE.format(token=self.token)
-        self.offset_file = settings.PROJECT_ROOT / "config" / ".telegram_offset"
+        self.offset_file = settings.LOGS_DIR.parent / "config" / ".telegram_offset"
 
     def get_new_commands(self) -> list[str]:
         """Fetch new commands sent to the bot since the last check."""
