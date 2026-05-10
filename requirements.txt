@@ -7,3 +7,5 @@ pymysql>=1.1.0
 typing_extensions>=4.0.0
 Flask>=3.0.0
 Werkzeug>=3.0.0
+micloud>=0.3.0
+pycryptodome>=3.19.0

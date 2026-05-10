@@ -11,6 +11,9 @@ Pipeline entry points
   capture_time_range(state, start_ms, end_ms, out_dir) -> list[CaptureResult]
 """
 
+from __future__ import annotations
+
+import glob
 import os
 import json
 import time
@@ -18,8 +21,9 @@ import base64
 import hashlib
 import datetime
 import pickle
+import subprocess
+import tempfile
 import requests
-import cv2
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -335,7 +339,6 @@ def download_thumbnail(state: dict, event: dict, out_path: str) -> Optional[str]
 # ── M3U8 parsing + AES-128 decryption ────────────────────────────────────────
 
 import re
-import tempfile
 from Crypto.Cipher import AES
 
 
@@ -402,33 +405,35 @@ def _segments_for_window(segments: list, start_sec: float,
 
 def _frames_from_raw(raw_bytes: bytes, label: str, out_dir: str,
                       max_frames: int = SEGMENT_SECS * FRAME_FPS) -> list[str]:
-    """Write decrypted segment bytes to temp file, extract frames with cv2."""
+    """Write decrypted segment bytes to temp file, extract frames with ffmpeg."""
     os.makedirs(out_dir, exist_ok=True)
-    saved = []
+
     with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
         tmp.write(raw_bytes)
         tmp_path = tmp.name
+
     try:
-        cap = cv2.VideoCapture(tmp_path)
-        if not cap.isOpened():
-            return []
-        src_fps    = cap.get(cv2.CAP_PROP_FPS) or 25
-        frame_step = max(1, int(src_fps / FRAME_FPS))
-        frame_idx = cap_idx = 0
-        while cap_idx < max_frames:
-            ret, frame = cap.read()
-            if not ret:
-                break
-            if frame_idx % frame_step == 0:
-                fname = os.path.join(out_dir, f"{label}_{cap_idx:02d}.jpg")
-                cv2.imwrite(fname, frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
-                saved.append(fname)
-                cap_idx += 1
-            frame_idx += 1
-        cap.release()
+        pattern = os.path.join(out_dir, f"{label}_%02d.jpg")
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", tmp_path,
+            "-vf", f"fps={FRAME_FPS}",
+            "-vframes", str(max_frames),
+            "-q:v", "3",
+            pattern,
+        ]
+        subprocess.run(cmd, capture_output=True, timeout=60, check=True)
+    except FileNotFoundError:
+        return []  # ffmpeg not installed
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        pass
     finally:
-        os.unlink(tmp_path)
-    return saved
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+    return sorted(glob.glob(os.path.join(out_dir, f"{label}_*.jpg")))
 
 
 # ── public frame extraction API ───────────────────────────────────────────────
