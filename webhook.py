@@ -73,8 +73,8 @@ def telegram_webhook():
 
                 display_name = f"@{username}" if username else first_name
                 notifier.send_text(
-                    f"🔍 Manual check triggered by {display_name}\\. "
-                    f"Fetching latest CCTV status\\.\\.\\."
+                    f"🔍 Manual check triggered by {display_name}. "
+                    f"Fetching latest CCTV status..."
                 )
 
                 # Delegate to monitor_studio.py which triggers Cloud Run
