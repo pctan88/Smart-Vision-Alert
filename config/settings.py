@@ -94,6 +94,7 @@ class Settings:
             return []
 
     # Derived paths
+    PROJECT_ROOT: Path = PROJECT_ROOT
     CAPTURES_DIR: Path = PROJECT_ROOT / "captures"
     MANUAL_DIR: Path = PROJECT_ROOT / "captures" / "manual"
     HISTORY_DIR: Path = PROJECT_ROOT / "captures" / "history"
