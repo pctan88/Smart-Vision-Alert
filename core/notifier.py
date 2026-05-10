@@ -8,6 +8,9 @@ import requests
 import json
 from pathlib import Path
 from datetime import datetime
+from zoneinfo import ZoneInfo
+
+_LOCAL_TZ = ZoneInfo("Asia/Kuala_Lumpur")
 
 from config.settings import Settings
 from core.models import AnalysisResult
@@ -120,7 +123,7 @@ class TelegramNotifier:
 
     def send_test_message(self) -> bool:
         """Send a test message to verify bot configuration."""
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        now = datetime.now(_LOCAL_TZ).strftime("%Y-%m-%d %H:%M:%S %Z")
         message = (
             f"🔧 *{self._escape_md('Smart Vision Alert — Test')}*\n"
             "━━━━━━━━━━━━━━━━━━━━\n"
@@ -135,7 +138,7 @@ class TelegramNotifier:
         """Format a rich alert message for Telegram."""
         emoji = RISK_EMOJI.get(result.risk_level, "⚠️")
         label = RISK_LABEL.get(result.risk_level, "UNKNOWN")
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        now = datetime.now(_LOCAL_TZ).strftime("%Y-%m-%d %H:%M:%S %Z")
 
         # Build hazard list
         hazards_text = "None"
