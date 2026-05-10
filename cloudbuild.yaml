@@ -1,0 +1,42 @@
+steps:
+  # Build the Docker image
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - build
+      - -t
+      - asia-southeast1-docker.pkg.dev/itc-monitoring-495910/smart-vision-alert/monitor:$COMMIT_SHA
+      - -t
+      - asia-southeast1-docker.pkg.dev/itc-monitoring-495910/smart-vision-alert/monitor:latest
+      - -f
+      - Dockerfile
+      - .
+
+  # Push image to Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - push
+      - --all-tags
+      - asia-southeast1-docker.pkg.dev/itc-monitoring-495910/smart-vision-alert/monitor
+
+  # Deploy to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - smart-vision-alert
+      - --image=asia-southeast1-docker.pkg.dev/itc-monitoring-495910/smart-vision-alert/monitor:$COMMIT_SHA
+      - --region=asia-southeast1
+      - --platform=managed
+      - --no-allow-unauthenticated
+      - --timeout=540
+      - --memory=512Mi
+      - --cpu=1
+      - --concurrency=1
+      - --max-instances=1
+
+images:
+  - asia-southeast1-docker.pkg.dev/itc-monitoring-495910/smart-vision-alert/monitor
+
+options:
+  logging: CLOUD_LOGGING_ONLY
