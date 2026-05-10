@@ -389,8 +389,8 @@ def run_pipeline(manual_check: bool = False) -> dict:
             log.info(f"No events in last {EVENT_LOOKBACK // 60} min")
             if manual_check:
                 notifier.send_text(
-                    f"✅ *{notifier._escape_md(cam_name)}*: "
-                    f"No motion in the last {EVENT_LOOKBACK // 60} minutes\\."
+                    f"✅ {cam_name}: No motion detected in the last "
+                    f"{EVENT_LOOKBACK // 60} minutes. Studio is quiet."
                 )
             continue
 
