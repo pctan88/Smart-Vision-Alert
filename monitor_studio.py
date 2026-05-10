@@ -164,50 +164,63 @@ def get_m3u8_url(state: dict, cam: dict, event: dict) -> str:
 
 def capture_event_frames(state: dict, cam: dict, event: dict) -> dict:
     """
-    Extract frames from an event video for AI analysis.
-    Downloads thumbnail as a fast fallback if video extraction yields nothing.
+    Extract frames from an event for AI analysis.
+
+    Strategy (shared hosting):
+      1. PRIMARY — download event thumbnail via Xiaomi processor API (always works).
+      2. SECONDARY — attempt cv2 video frame extraction (silently fails on most
+         shared hosts due to swscaler resource restrictions; kept for future use).
+
     Returns: {fileId, eventType, time, duration, segments: [...], frames, dir}
     """
     fid    = event["fileId"]
     ev_dir = os.path.join(CAPTURES_BASE, cam["did"], fid)
     os.makedirs(ev_dir, exist_ok=True)
 
-    http     = _make_http_session(state)
-    m3u8_url = get_m3u8_url(state, cam, event)
-    duration = get_video_duration_from_url(m3u8_url, auth_session=http) or 0
-
     segments_captured = []
 
-    # First 5 seconds
-    frames = extract_segment(m3u8_url, ev_dir, "first", start_sec=0.0, auth_session=http)
-    if frames:
-        segments_captured.append({"label": "first", "frames": frames})
+    # ── 1. Thumbnail (primary, always reliable) ───────────────────────────────
+    first_dir  = os.path.join(ev_dir, "first")
+    os.makedirs(first_dir, exist_ok=True)
+    thumb_path = os.path.join(first_dir, "thumb_00.jpg")
+    saved = download_thumbnail(state, event, thumb_path,
+                               did=cam["did"], model=cam["model"])
+    if saved:
+        segments_captured.append({"label": "first", "frames": [saved]})
+        log.info(f"Thumbnail captured: {os.path.basename(saved)}")
+    else:
+        log.warning(f"Thumbnail download failed for event {fid}")
 
-    # Last 5 seconds (if long enough)
-    if duration > SEGMENT_SECS * 2:
-        last_start = max(0.0, duration - SEGMENT_SECS)
-        frames = extract_segment(m3u8_url, ev_dir, "last", start_sec=last_start, auth_session=http)
+    # ── 2. Video frame extraction (best-effort; fails on swscaler-restricted hosts) ──
+    try:
+        http     = _make_http_session(state)
+        m3u8_url = get_m3u8_url(state, cam, event)
+        duration = get_video_duration_from_url(m3u8_url, auth_session=http) or 0
+
+        # First 5 seconds
+        frames = extract_segment(m3u8_url, ev_dir, "first_vid", start_sec=0.0, auth_session=http)
         if frames:
-            segments_captured.append({"label": "last", "frames": frames})
+            segments_captured.append({"label": "first_vid", "frames": frames})
 
-    # Every 60s interval (if > 1 minute)
-    if duration > 60:
-        mark = 60.0
-        while mark < duration - SEGMENT_SECS:
-            lbl = f"t{int(mark):04d}s"
-            frames = extract_segment(m3u8_url, ev_dir, lbl, start_sec=mark, auth_session=http)
+        # Last 5 seconds (if long enough)
+        if duration > SEGMENT_SECS * 2:
+            last_start = max(0.0, duration - SEGMENT_SECS)
+            frames = extract_segment(m3u8_url, ev_dir, "last", start_sec=last_start, auth_session=http)
             if frames:
-                segments_captured.append({"label": lbl, "frames": frames})
-            mark += 60.0
+                segments_captured.append({"label": "last", "frames": frames})
 
-    # Fallback: use thumbnail if video extraction yielded nothing
-    if not segments_captured:
-        first_dir = os.path.join(ev_dir, "first")
-        os.makedirs(first_dir, exist_ok=True)
-        thumb_path = os.path.join(first_dir, "thumb_00.jpg")
-        saved = download_thumbnail(state, event, thumb_path)
-        if saved:
-            segments_captured.append({"label": "first", "frames": [saved]})
+        # Every 60s interval (if > 1 minute)
+        if duration > 60:
+            mark = 60.0
+            while mark < duration - SEGMENT_SECS:
+                lbl = f"t{int(mark):04d}s"
+                frames = extract_segment(m3u8_url, ev_dir, lbl, start_sec=mark, auth_session=http)
+                if frames:
+                    segments_captured.append({"label": lbl, "frames": frames})
+                mark += 60.0
+
+    except Exception as e:
+        log.debug(f"Video extraction skipped: {e}")
 
     total = sum(len(s["frames"]) for s in segments_captured)
     return {

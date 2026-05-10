@@ -302,21 +302,27 @@ def get_m3u8_url(state: dict, event: dict) -> str:
     })
 
 
-def download_thumbnail(state: dict, event: dict, out_path: str) -> Optional[str]:
+def download_thumbnail(state: dict, event: dict, out_path: str,
+                       did: Optional[str] = None,
+                       model: Optional[str] = None) -> Optional[str]:
     """
     Download the event thumbnail image via processor API.
+    Pass did/model explicitly when called from multi-camera contexts;
+    falls back to module-level DEVICE_ID/CAMERA_MODEL for standalone use.
     Returns local file path or None on failure.
     """
     img_store_id = event.get("imgStoreId")
     if not img_store_id:
         return None
+    _did   = did   or DEVICE_ID
+    _model = model or CAMERA_MODEL
     try:
         resp = _camera_api(state,
             host="sg.app.processor.smartcamera.api.io.mi.com",
             path="common/app/play/v1/img",
             params={
-                "did":        DEVICE_ID,
-                "model":      CAMERA_MODEL,
+                "did":        _did,
+                "model":      _model,
                 "fileId":     event["fileId"],
                 "imgStoreId": img_store_id,
                 "region":     "CN",
