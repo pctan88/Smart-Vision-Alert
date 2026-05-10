@@ -1,7 +1,7 @@
 """
 Smart Vision Alert — Gemini AI Safety Analyzer
 Analyzes CCTV images for aerial dance studio safety hazards
-using Google Gemini 1.5 Flash vision model.
+using Google Gemini vision model.
 
 Supports two analysis modes:
   - Single-frame: Analyze one image for immediate hazards
@@ -9,11 +9,16 @@ Supports two analysis modes:
                   and temporal changes (e.g., person motionless for too long)
 """
 
+from __future__ import annotations
+
+import io
 import json
 import re
 from pathlib import Path
 
-import google.generativeai as genai
+import typing_extensions as typing
+from google import genai
+from google.genai import types
 from PIL import Image
 
 from config.settings import Settings
@@ -152,8 +157,6 @@ Respond ONLY with this JSON (no markdown, no code blocks, just raw JSON):
 """
 
 
-import typing_extensions as typing
-
 class AnalysisSchema(typing.TypedDict):
     is_safe: bool
     risk_level: str
@@ -165,6 +168,7 @@ class AnalysisSchema(typing.TypedDict):
     stillness_warning: bool
     temporal_description: str
 
+
 class SafetyAnalyzer:
     """Analyze camera images for aerial dance safety hazards using Gemini AI."""
 
@@ -173,30 +177,39 @@ class SafetyAnalyzer:
         self._configure_api()
 
     def _configure_api(self):
-        """Configure the Gemini API with the provided key."""
+        """Configure the Gemini API client."""
         if not self.settings.GEMINI_API_KEY:
             raise ValueError("GEMINI_API_KEY is not configured")
 
-        genai.configure(api_key=self.settings.GEMINI_API_KEY)
+        self.client = genai.Client(api_key=self.settings.GEMINI_API_KEY)
 
-        self.model = genai.GenerativeModel(
-            model_name=self.settings.GEMINI_MODEL,
-            generation_config={
-                "temperature": 0.1,  # Low temperature for consistent safety judgments
-                "top_p": 0.95,
-                "max_output_tokens": 2048,  # More tokens needed for temporal analysis
-                "response_mime_type": "application/json",
-                "response_schema": AnalysisSchema,
-            },
+        self._gen_config = types.GenerateContentConfig(
+            temperature=0.1,
+            top_p=0.95,
+            max_output_tokens=2048,
+            response_mime_type="application/json",
+            response_schema=AnalysisSchema,
             safety_settings=[
-                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
-            ]
+                types.SafetySetting(
+                    category="HARM_CATEGORY_HARASSMENT",
+                    threshold="BLOCK_NONE",
+                ),
+                types.SafetySetting(
+                    category="HARM_CATEGORY_HATE_SPEECH",
+                    threshold="BLOCK_NONE",
+                ),
+                types.SafetySetting(
+                    category="HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                    threshold="BLOCK_NONE",
+                ),
+                types.SafetySetting(
+                    category="HARM_CATEGORY_DANGEROUS_CONTENT",
+                    threshold="BLOCK_NONE",
+                ),
+            ],
         )
 
-        log.info(f"Gemini AI model configured ({self.settings.GEMINI_MODEL})")
+        log.info(f"Gemini AI configured ({self.settings.GEMINI_MODEL})")
 
     # ── Single-Frame Analysis ─────────────────────────────────
     def analyze(self, image_path: str) -> AnalysisResult:
@@ -212,11 +225,12 @@ class SafetyAnalyzer:
         try:
             log.info(f"[Single-Frame] Analyzing image: {image_path}")
 
-            img = self._load_image(image_path)
+            img_part = self._load_image_part(image_path)
 
-            response = self.model.generate_content(
-                [SINGLE_FRAME_PROMPT, img],
-                request_options={"timeout": 60},
+            response = self.client.models.generate_content(
+                model=self.settings.GEMINI_MODEL,
+                contents=[SINGLE_FRAME_PROMPT, img_part],
+                config=self._gen_config,
             )
 
             raw_text = response.text.strip()
@@ -250,7 +264,6 @@ class SafetyAnalyzer:
         if not image_paths:
             return AnalysisResult.error_result("No images provided for multi-frame analysis")
 
-        # Fall back to single-frame if only one image
         if len(image_paths) == 1:
             log.info("Only 1 frame available — falling back to single-frame analysis")
             return self.analyze(image_paths[0])
@@ -264,43 +277,34 @@ class SafetyAnalyzer:
                 f"(~{interval}s apart)"
             )
 
-            # Load all images
-            images = []
-            for i, path in enumerate(image_paths):
-                img = self._load_image(path)
-                images.append(img)
-                log.debug(f"  Frame {i + 1}: {Path(path).name}")
-
-            # Build the prompt with frame metadata
             prompt = MULTI_FRAME_PROMPT.format(
                 frame_count=frame_count,
                 interval=interval,
             )
 
-            # Construct the content: [prompt, "Image 1:", img1, "Image 2:", img2, ...]
-            content = [prompt]
-            for i, img in enumerate(images):
-                content.append(f"\n--- Image {i + 1} of {frame_count} (T+{i * interval}s) ---")
-                content.append(img)
+            # Build content: [prompt, "Image 1:", part1, "Image 2:", part2, ...]
+            contents = [prompt]
+            for i, path in enumerate(image_paths):
+                contents.append(f"\n--- Image {i + 1} of {frame_count} (T+{i * interval}s) ---")
+                contents.append(self._load_image_part(path))
+                log.debug(f"  Frame {i + 1}: {Path(path).name}")
 
-            # Send to Gemini
-            response = self.model.generate_content(
-                content,
-                request_options={"timeout": 90},  # More time for multi-frame
+            response = self.client.models.generate_content(
+                model=self.settings.GEMINI_MODEL,
+                contents=contents,
+                config=self._gen_config,
             )
 
             raw_text = response.text.strip()
             log.debug(f"Gemini multi-frame response: {raw_text}")
 
-            # Parse response
             result = self._parse_response(raw_text)
             result.raw_response = raw_text
             result.analysis_mode = "multi_frame"
             result.frames_analyzed = frame_count
 
-            # Enhance risk based on stillness detection
+            # Escalate risk if person appears completely still
             if result.stillness_warning and not result.motion_detected:
-                # If person is present and completely still, escalate risk
                 if result.risk_level in ("safe", "low"):
                     log.warning(
                         "⚠️ Stillness detected across frames — "
@@ -317,7 +321,6 @@ class SafetyAnalyzer:
 
         except Exception as e:
             log.error(f"Multi-frame analysis failed: {e}", exc_info=True)
-            # Fall back to single-frame analysis of the latest image
             log.info("Falling back to single-frame analysis of latest image")
             return self.analyze(image_paths[-1])
 
@@ -330,13 +333,6 @@ class SafetyAnalyzer:
 
         Convenience method that wraps analyze_multi_frame for the common
         case of comparing just 2 images (previous + current).
-
-        Args:
-            current_path: Path to the current/latest image.
-            previous_path: Path to the previous image (or None).
-
-        Returns:
-            AnalysisResult with temporal comparison if previous exists.
         """
         if previous_path and Path(previous_path).exists():
             return self.analyze_multi_frame([previous_path, current_path])
@@ -344,12 +340,17 @@ class SafetyAnalyzer:
             return self.analyze(current_path)
 
     # ── Helpers ───────────────────────────────────────────────
-    def _load_image(self, image_path: str) -> Image.Image:
-        """Load and prepare an image for Gemini API."""
+    def _load_image_part(self, image_path: str) -> types.Part:
+        """Load an image file and return it as a Gemini API Part."""
         img = Image.open(image_path)
         if img.mode in ("RGBA", "P"):
             img = img.convert("RGB")
-        return img
+        buffer = io.BytesIO()
+        img.save(buffer, format="JPEG", quality=85)
+        return types.Part.from_bytes(
+            data=buffer.getvalue(),
+            mime_type="image/jpeg",
+        )
 
     def _log_result(self, result: AnalysisResult):
         """Log analysis result details."""
@@ -375,7 +376,6 @@ class SafetyAnalyzer:
     def _parse_response(self, raw_text: str) -> AnalysisResult:
         """Parse Gemini's JSON response into an AnalysisResult."""
         try:
-            # Try direct JSON parse
             data = json.loads(raw_text)
             return AnalysisResult.from_dict(data)
 
@@ -399,12 +399,11 @@ class SafetyAnalyzer:
                 except Exception:
                     pass
 
-            # Fallback: couldn't parse response
             log.warning(f"Could not parse Gemini response as JSON. Raw text: {repr(raw_text)}")
             return AnalysisResult(
                 is_safe=True,
                 risk_level="safe",
-                description=f"Could not parse AI response",
+                description="Could not parse AI response",
                 detected_hazards=[],
                 confidence=0.0,
                 raw_response=raw_text,

@@ -20,6 +20,8 @@ Usage:
     python3 monitor_studio.py --status      # Show today's stats
 """
 
+from __future__ import annotations
+
 import os
 import sys
 import json

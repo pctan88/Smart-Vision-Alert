@@ -6,6 +6,8 @@ Supports multiple image sources:
   - url: Download from a direct snapshot URL
 """
 
+from __future__ import annotations
+
 import hashlib
 import json
 import time

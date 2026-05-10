@@ -3,6 +3,8 @@ Smart Vision Alert — Image Utilities
 Helper functions for image download, resize, encoding, and cleanup.
 """
 
+from __future__ import annotations
+
 import os
 import time
 from pathlib import Path
