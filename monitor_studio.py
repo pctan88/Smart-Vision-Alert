@@ -173,6 +173,7 @@ def capture_event_frames(state: dict, cam: dict, event: dict) -> dict:
 
     Returns: {fileId, eventType, time, duration, segments: [...], frames, dir}
     """
+    log    = get_logger()
     fid    = event["fileId"]
     ev_dir = os.path.join(CAPTURES_BASE, cam["did"], fid)
     os.makedirs(ev_dir, exist_ok=True)
