@@ -65,15 +65,14 @@ create_secret() {
   fi
 }
 
-create_secret "GEMINI_API_KEY"        "GEMINI_API_KEY"
-create_secret "TELEGRAM_BOT_TOKEN"    "TELEGRAM_BOT_TOKEN"
-create_secret "TELEGRAM_CHAT_ID"      "TELEGRAM_CHAT_ID"
-create_secret "XIAOMI_USERNAME"       "XIAOMI_USERNAME"
-create_secret "XIAOMI_PASSWORD"       "XIAOMI_PASSWORD"
-create_secret "STUDIO_CAMERAS"        "STUDIO_CAMERAS (JSON array)"
-create_secret "CLOUD_RUN_SECRET"      "CLOUD_RUN_SECRET (shared trigger token)"
-create_secret "INTERNAL_SECRET"       "INTERNAL_SECRET (Cloud Run → A2 callback token)"
-create_secret "A2_BASE_URL"           "A2_BASE_URL (e.g. https://yourdomain.com)"
+create_secret "GEMINI_API_KEY"      "GEMINI_API_KEY"
+create_secret "TELEGRAM_BOT_TOKEN"  "TELEGRAM_BOT_TOKEN"
+create_secret "TELEGRAM_CHAT_ID"    "TELEGRAM_CHAT_ID"
+create_secret "STUDIO_CAMERAS"      "STUDIO_CAMERAS (JSON array)"
+create_secret "CLOUD_RUN_SECRET"    "CLOUD_RUN_SECRET (shared trigger token)"
+create_secret "INTERNAL_SECRET"     "INTERNAL_SECRET (Cloud Run → A2 callback token)"
+create_secret "A2_BASE_URL"         "A2_BASE_URL (e.g. https://yourdomain.com)"
+# XIAOMI_USERNAME / XIAOMI_PASSWORD not needed — session loaded from GCS
 
 # 6. Grant Cloud Build permission to deploy Cloud Run
 echo "[5/7] Setting IAM permissions..."
@@ -119,8 +118,6 @@ gcloud run deploy $SERVICE \
 GEMINI_API_KEY=GEMINI_API_KEY:latest,\
 TELEGRAM_BOT_TOKEN=TELEGRAM_BOT_TOKEN:latest,\
 TELEGRAM_CHAT_ID=TELEGRAM_CHAT_ID:latest,\
-XIAOMI_USERNAME=XIAOMI_USERNAME:latest,\
-XIAOMI_PASSWORD=XIAOMI_PASSWORD:latest,\
 STUDIO_CAMERAS=STUDIO_CAMERAS:latest,\
 CLOUD_RUN_SECRET=CLOUD_RUN_SECRET:latest,\
 INTERNAL_SECRET=INTERNAL_SECRET:latest,\
