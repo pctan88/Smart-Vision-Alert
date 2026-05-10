@@ -1,0 +1,44 @@
+# .gitignore for Smart Vision Alert
+
+# Environment / secrets
+config/.env
+.env
+xiaomi_devices.json
+config/.micloud_session
+config/.micloud_session_new
+config/.telegram_offset
+
+# Captures (images)
+captures/*.jpg
+captures/*.jpeg
+captures/*.png
+captures/manual/*
+!captures/manual/.gitkeep
+captures/history/
+captures/studio/
+
+# Logs
+logs/*.log
+
+# Cooldown tracker
+logs/.last_alert.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+.venv/
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
