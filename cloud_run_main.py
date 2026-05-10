@@ -368,8 +368,16 @@ def run_pipeline(manual_check: bool = False) -> dict:
     if not cameras:
         return {"error": "No cameras configured (STUDIO_CAMERAS)"}
 
-    now_ms   = int(time.time() * 1000)
-    start_ms = now_ms - (EVENT_LOOKBACK * 1000)
+    now_ms = int(time.time() * 1000)
+
+    if manual_check:
+        # /check: fetch from midnight today (MYT) — find the last event of the day
+        midnight = datetime.datetime.now(LOCAL_TZ).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        start_ms = int(midnight.timestamp() * 1000)
+    else:
+        start_ms = now_ms - (EVENT_LOOKBACK * 1000)
 
     results = {"cameras": [], "total_new": 0, "total_skip": 0}
 
@@ -386,26 +394,29 @@ def run_pipeline(manual_check: bool = False) -> dict:
             continue
 
         if not events:
-            log.info(f"No events in last {EVENT_LOOKBACK // 60} min")
+            log.info(f"No events found for {cam_name} today")
             if manual_check:
                 notifier.send_text(
-                    f"✅ {cam_name}: No motion detected in the last "
-                    f"{EVENT_LOOKBACK // 60} minutes. Studio is quiet."
+                    f"✅ {cam_name}: No motion detected today. Studio is quiet."
                 )
             continue
 
-        latest_fid = events[0].get("fileId")
-        log.info(f"Found {len(events)} event(s)")
+        if manual_check:
+            # Only process the single latest event, bypass DB check
+            events = [events[0]]
+            log.info(f"Manual check: using latest event only (fid={events[0].get('fileId')})")
+        else:
+            log.info(f"Found {len(events)} event(s)")
 
         for ev in events:
             fid = ev.get("fileId")
             if not fid:
                 continue
 
-            is_latest = (fid == latest_fid)
+            is_latest = True  # always True — manual_check uses 1 event, cron marks latest
 
-            # ── skip already processed ─────────────────────────────────
-            if a2_is_processed(fid):
+            # ── skip already processed (cron only) ────────────────────
+            if not manual_check and a2_is_processed(fid):
                 results["total_skip"] += 1
                 continue
 
