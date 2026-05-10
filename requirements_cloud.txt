@@ -1,0 +1,17 @@
+# Google Cloud Run requirements
+# ffmpeg is installed via Dockerfile apt-get — NOT pip
+# opencv not needed — ffmpeg subprocess used for frame extraction
+# pymysql not needed — DB access via A2 internal API
+
+google-genai>=0.3.0
+google-cloud-storage>=2.0.0
+python-dotenv>=1.0.0
+requests>=2.31.0
+urllib3<2.0.0
+Pillow>=10.0.0
+micloud>=0.3.0
+pycryptodome>=3.19.0
+Flask>=3.0.0
+Werkzeug>=3.0.0
+gunicorn>=21.0.0
+typing_extensions>=4.0.0

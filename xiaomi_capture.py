@@ -23,7 +23,6 @@ import hashlib
 import datetime
 import pickle
 import requests
-import cv2
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -417,6 +416,7 @@ def _is_black_frame(frame) -> bool:
 def _frames_from_raw(raw_bytes: bytes, label: str, out_dir: str,
                       max_frames: int = SEGMENT_SECS * FRAME_FPS) -> list[str]:
     """Write decrypted MPEG-TS segment bytes to temp file, extract frames with cv2."""
+    import cv2  # lazy import — not available on Cloud Run (uses ffmpeg instead)
     os.makedirs(out_dir, exist_ok=True)
     saved = []
     # Use .ts extension — raw HLS segments are MPEG-TS, not MP4

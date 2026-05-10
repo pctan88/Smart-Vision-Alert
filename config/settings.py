@@ -84,6 +84,16 @@ class Settings:
     STUDIO_HOURS_START: int = int(os.getenv("STUDIO_HOURS_START", "9"))
     STUDIO_HOURS_END: int = int(os.getenv("STUDIO_HOURS_END", "23"))
 
+    # Cloud Run integration
+    CLOUD_RUN_URL: str    = os.getenv("CLOUD_RUN_URL", "")      # e.g. https://xxx.run.app
+    CLOUD_RUN_SECRET: str = os.getenv("CLOUD_RUN_SECRET", "")   # shared secret for /run trigger
+    INTERNAL_SECRET: str  = os.getenv("INTERNAL_SECRET", "")    # shared secret for A2 /api/* callbacks
+    A2_BASE_URL: str      = os.getenv("A2_BASE_URL", "")        # e.g. https://yourdomain.com
+
+    # Google Cloud Storage (Xiaomi session persistence)
+    GCS_BUCKET: str       = os.getenv("GCS_BUCKET", "")
+    GCS_SESSION_BLOB: str = os.getenv("GCS_SESSION_BLOB", "xiaomi_session.json")
+
     @property
     def STUDIO_CAMERAS(self) -> list[dict]:
         """Parse studio cameras from JSON string in env."""
