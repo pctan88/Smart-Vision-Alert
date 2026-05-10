@@ -8,20 +8,18 @@ config/.micloud_session
 config/.micloud_session_new
 config/.telegram_offset
 
-# Captures (images)
-captures/*.jpg
-captures/*.jpeg
-captures/*.png
+# Captures (all runtime data)
+captures/*
+!captures/manual/
 captures/manual/*
 !captures/manual/.gitkeep
-captures/history/
-captures/studio/
 
 # Logs
 logs/*.log
-
-# Cooldown tracker
 logs/.last_alert.json
+
+# macOS
+**/.DS_Store
 
 # Python
 __pycache__/
