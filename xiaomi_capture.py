@@ -14,6 +14,7 @@ Pipeline entry points
 from __future__ import annotations
 
 import glob
+import io
 import os
 import json
 import time
@@ -21,7 +22,6 @@ import base64
 import hashlib
 import datetime
 import pickle
-import subprocess
 import tempfile
 import requests
 from dataclasses import dataclass, field, asdict
@@ -405,35 +405,38 @@ def _segments_for_window(segments: list, start_sec: float,
 
 def _frames_from_raw(raw_bytes: bytes, label: str, out_dir: str,
                       max_frames: int = SEGMENT_SECS * FRAME_FPS) -> list[str]:
-    """Write decrypted segment bytes to temp file, extract frames with ffmpeg."""
-    os.makedirs(out_dir, exist_ok=True)
+    """Extract frames from raw video bytes using PyAV (no subprocess needed)."""
+    import av
 
-    with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
-        tmp.write(raw_bytes)
-        tmp_path = tmp.name
+    os.makedirs(out_dir, exist_ok=True)
+    saved = []
 
     try:
-        pattern = os.path.join(out_dir, f"{label}_%02d.jpg")
-        cmd = [
-            "ffmpeg", "-y",
-            "-i", tmp_path,
-            "-vf", f"fps={FRAME_FPS}",
-            "-vframes", str(max_frames),
-            "-q:v", "3",
-            pattern,
-        ]
-        subprocess.run(cmd, capture_output=True, timeout=60, check=True)
-    except FileNotFoundError:
-        return []  # ffmpeg not installed
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
-        pass
-    finally:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
+        container = av.open(io.BytesIO(raw_bytes))
+        video_stream = next((s for s in container.streams if s.type == "video"), None)
+        if video_stream is None:
+            return []
 
-    return sorted(glob.glob(os.path.join(out_dir, f"{label}_*.jpg")))
+        src_fps = float(video_stream.average_rate or 25)
+        frame_step = max(1, int(src_fps / FRAME_FPS))
+
+        frame_idx = 0
+        cap_idx = 0
+        for frame in container.decode(video_stream):
+            if cap_idx >= max_frames:
+                break
+            if frame_idx % frame_step == 0:
+                fname = os.path.join(out_dir, f"{label}_{cap_idx:02d}.jpg")
+                frame.to_image().save(fname, "JPEG", quality=90)
+                saved.append(fname)
+                cap_idx += 1
+            frame_idx += 1
+
+        container.close()
+    except Exception:
+        pass
+
+    return saved
 
 
 # ── public frame extraction API ───────────────────────────────────────────────
