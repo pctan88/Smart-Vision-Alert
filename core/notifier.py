@@ -4,6 +4,7 @@ Sends safety alert messages with images to a Telegram group.
 Uses raw HTTP requests (no heavy SDK) for shared hosting compatibility.
 """
 
+import time
 import requests
 import json
 from pathlib import Path
@@ -91,6 +92,9 @@ class TelegramNotifier:
         """Send a plain text message (auto-escaped) to the Telegram group."""
         return self._send_text(self._escape_md(text))
 
+    # Telegram sendPhoto caption max length
+    _CAPTION_MAX = 1024
+
     def send_alert(self, result: AnalysisResult, image_path: str) -> bool:
         """
         Send a safety alert with the CCTV image to the Telegram group.
@@ -102,16 +106,21 @@ class TelegramNotifier:
             return False
 
         try:
-            # Build formatted message
             message = self._format_alert_message(result)
 
-            # Send photo with caption
-            success = self._send_photo(image_path, message)
+            if len(message) <= self._CAPTION_MAX:
+                # Caption fits — send photo with full caption
+                success = self._send_photo(image_path, message)
+            else:
+                # Caption too long — send photo with short caption, then full text
+                short_cap = self._build_short_caption(result)
+                success = self._send_photo(image_path, short_cap)
+                if success:
+                    self._send_text(message)
 
             if success:
                 log.info(f"✅ Telegram alert sent (risk: {result.risk_level})")
             else:
-                # Fallback: send text-only if photo fails
                 log.warning("Photo send failed, trying text-only fallback")
                 success = self._send_text(message)
 
@@ -173,9 +182,9 @@ class TelegramNotifier:
             if result.partial_body_lock:
                 stuck_secs = result.partial_body_lock_frames * self.settings.MULTI_FRAME_INTERVAL_SECONDS
                 if result.partial_body_lock_resolved:
-                    message += f"🟡 *ENTANGLEMENT \\(resolved\\) — stuck ~{stuck_secs}s, person recovered*\n"
+                    message += f"🟡 *ENTANGLEMENT \\(resolved\\) — stuck \\~{stuck_secs}s, person recovered*\n"
                 else:
-                    message += f"⚠️ *ENTANGLEMENT WARNING — stuck on apparatus for ~{stuck_secs}s \\({result.partial_body_lock_frames} frames\\)*\n"
+                    message += f"⚠️ *ENTANGLEMENT WARNING — stuck on apparatus for \\~{stuck_secs}s \\({result.partial_body_lock_frames} frames\\)*\n"
             if result.stillness_warning:
                 message += f"🔴 *STILLNESS WARNING — person may be unconscious or unable to move*\n"
             if result.temporal_description:
@@ -195,53 +204,82 @@ class TelegramNotifier:
 
         return message
 
+    def _build_short_caption(self, result: AnalysisResult) -> str:
+        """Build a short photo caption (fits within Telegram's 1024-char limit)."""
+        emoji = RISK_EMOJI.get(result.risk_level, "⚠️")
+        label = RISK_LABEL.get(result.risk_level, "UNKNOWN")
+        now   = datetime.now(_LOCAL_TZ).strftime("%Y-%m-%d %H:%M:%S %Z")
+        desc  = self._escape_md(result.description[:200])
+
+        return (
+            f"{emoji} *SAFETY ALERT — Aerial Studio CCTV*\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"🏷️ Risk Level: *{label}*\n"
+            f"📋 {desc}\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"🕐 {self._escape_md(now)}\n"
+            f"_\\(Full details in next message\\)_"
+        )
+
     def _send_photo(self, image_path: str, caption: str) -> bool:
-        """Send a photo with caption to the Telegram group."""
+        """Send a photo with caption to the Telegram group (3 attempts)."""
         url = f"{self.api_url}/sendPhoto"
 
-        try:
-            with open(image_path, "rb") as photo:
-                payload = {
-                    "chat_id": self.chat_id,
-                    "caption": caption,
-                    "parse_mode": "MarkdownV2",
-                }
-                files = {"photo": photo}
+        for attempt in range(1, 4):
+            try:
+                with open(image_path, "rb") as photo:
+                    payload = {
+                        "chat_id": self.chat_id,
+                        "caption": caption,
+                        "parse_mode": "MarkdownV2",
+                    }
+                    resp = requests.post(url, data=payload,
+                                         files={"photo": photo}, timeout=30)
 
-                resp = requests.post(url, data=payload, files=files, timeout=30)
+                if resp.status_code == 200 and resp.json().get("ok"):
+                    return True
 
-            if resp.status_code == 200 and resp.json().get("ok"):
-                return True
+                log.error(
+                    f"Telegram sendPhoto failed (attempt {attempt}/3): "
+                    f"{resp.status_code} — {resp.text}"
+                )
 
-            log.error(f"Telegram sendPhoto failed: {resp.status_code} — {resp.text}")
-            return False
+            except Exception as e:
+                log.error(f"sendPhoto error (attempt {attempt}/3): {e}")
 
-        except Exception as e:
-            log.error(f"sendPhoto error: {e}")
-            return False
+            if attempt < 3:
+                time.sleep(3)
+
+        return False
 
     def _send_text(self, text: str) -> bool:
-        """Send a text-only message to the Telegram group."""
+        """Send a text-only message to the Telegram group (3 attempts)."""
         url = f"{self.api_url}/sendMessage"
 
-        try:
-            payload = {
-                "chat_id": self.chat_id,
-                "text": text,
-                "parse_mode": "MarkdownV2",
-            }
+        for attempt in range(1, 4):
+            try:
+                payload = {
+                    "chat_id": self.chat_id,
+                    "text": text,
+                    "parse_mode": "MarkdownV2",
+                }
+                resp = requests.post(url, json=payload, timeout=30)
 
-            resp = requests.post(url, json=payload, timeout=30)
+                if resp.status_code == 200 and resp.json().get("ok"):
+                    return True
 
-            if resp.status_code == 200 and resp.json().get("ok"):
-                return True
+                log.error(
+                    f"Telegram sendMessage failed (attempt {attempt}/3): "
+                    f"{resp.status_code} — {resp.text}"
+                )
 
-            log.error(f"Telegram sendMessage failed: {resp.status_code} — {resp.text}")
-            return False
+            except Exception as e:
+                log.error(f"sendMessage error (attempt {attempt}/3): {e}")
 
-        except Exception as e:
-            log.error(f"sendMessage error: {e}")
-            return False
+            if attempt < 3:
+                time.sleep(3)
+
+        return False
 
     @staticmethod
     def _escape_md(text: str) -> str:

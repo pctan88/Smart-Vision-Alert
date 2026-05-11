@@ -455,6 +455,56 @@ class SafetyAnalyzer:
             log.info("Falling back to single-frame analysis of latest image")
             return self.analyze(image_paths[-1])
 
+    # ── Best Frame for Alert Image ────────────────────────────
+    def identify_best_frame(self, image_paths: list[str],
+                             result: AnalysisResult) -> int:
+        """
+        Ask Gemini which frame (0-based index) most clearly shows the hazard.
+        Falls back to the last frame if the call fails.
+        """
+        if len(image_paths) <= 1:
+            return 0
+
+        try:
+            hazards_str = (
+                ", ".join(result.detected_hazards)
+                if result.detected_hazards
+                else result.description
+            )
+            prompt = (
+                f"You are reviewing {len(image_paths)} CCTV frames "
+                f"(indexed 0 to {len(image_paths) - 1}).\n"
+                f"A safety risk was detected: {result.risk_level} — {hazards_str}\n"
+                f"Which single frame index most clearly shows the detected hazard "
+                f"or the person in the most dangerous position?\n"
+                f"Reply with ONLY one integer (0-based index). No other text."
+            )
+
+            contents = [prompt]
+            for i, path in enumerate(image_paths):
+                contents.append(f"Frame {i}:")
+                contents.append(self._load_image_part(path))
+
+            cfg = types.GenerateContentConfig(
+                temperature=0.0,
+                max_output_tokens=5,
+            )
+            response = self.client.models.generate_content(
+                model=self.settings.GEMINI_MODEL,
+                contents=contents,
+                config=cfg,
+            )
+
+            idx = int(response.text.strip())
+            if 0 <= idx < len(image_paths):
+                log.info(f"Best alert frame: index {idx} of {len(image_paths)}")
+                return idx
+
+        except Exception as e:
+            log.warning(f"identify_best_frame failed: {e} — using last frame")
+
+        return len(image_paths) - 1
+
     # ── Compare With Previous (simple 2-frame comparison) ─────
     def analyze_with_previous(
         self, current_path: str, previous_path: str | None

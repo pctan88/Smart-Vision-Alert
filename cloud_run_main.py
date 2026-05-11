@@ -449,7 +449,24 @@ def run_pipeline(manual_check: bool = False) -> dict:
             force_alert = manual_check and is_latest
 
             if force_alert or settings.risk_exceeds_threshold(result.risk_level):
-                alert_image = capture["alert_image"] or capture["all_frames"][0]
+                # Pick best frame: ask AI for hazard frame, else last frame, else thumbnail
+                if capture["all_frames"] and result.risk_level != "safe":
+                    try:
+                        best_idx = analyzer.identify_best_frame(
+                            capture["all_frames"], result
+                        )
+                        alert_image = capture["all_frames"][best_idx]
+                        log.info(f"Alert image: best frame [{best_idx}] "
+                                 f"{os.path.basename(alert_image)}")
+                    except Exception as e:
+                        log.warning(f"Best-frame selection failed: {e}")
+                        alert_image = (capture["all_frames"][-1]
+                                       or capture["alert_image"])
+                else:
+                    alert_image = (capture["alert_image"]
+                                   or (capture["all_frames"][0]
+                                       if capture["all_frames"] else None))
+
                 try:
                     telegram_ok = notifier.send_alert(result, alert_image)
                     alert_sent  = True
