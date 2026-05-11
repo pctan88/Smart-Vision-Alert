@@ -23,11 +23,15 @@ class AnalysisResult:
 
     # Temporal / multi-frame analysis fields
     motion_detected: bool = True  # False = stillness (potential emergency)
+    partial_body_lock: bool = False  # True if one limb/clothing appears stuck on apparatus
+    partial_body_lock_frames: int = 0  # Number of frames where stuck body part was observed
+    partial_body_lock_resolved: bool = False  # True if person freed themselves by end of video
     scene_change_level: str = "unknown"  # none, minimal, moderate, significant
     stillness_warning: bool = False  # True if person appears motionless across frames
     temporal_description: str = ""  # Description of changes between frames
     analysis_mode: str = "single"  # single or multi_frame
     frames_analyzed: int = 1
+    people_count: int = 0  # Real people count (excluding mirror reflections)
 
     def to_dict(self) -> dict:
         """Convert to dictionary (excluding raw_response for brevity)."""
@@ -49,9 +53,13 @@ class AnalysisResult:
             detected_hazards=data.get("detected_hazards", []),
             confidence=float(data.get("confidence", 0.0)),
             motion_detected=data.get("motion_detected", True),
+            partial_body_lock=data.get("partial_body_lock", False),
+            partial_body_lock_frames=int(data.get("partial_body_lock_frames", 0)),
+            partial_body_lock_resolved=data.get("partial_body_lock_resolved", False),
             scene_change_level=data.get("scene_change_level", "unknown"),
             stillness_warning=data.get("stillness_warning", False),
             temporal_description=data.get("temporal_description", ""),
+            people_count=data.get("people_count", 0),
         )
 
     @classmethod

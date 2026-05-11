@@ -66,7 +66,7 @@ class Settings:
     # Multi-frame / temporal analysis
     MULTI_FRAME_ENABLED: bool = os.getenv("MULTI_FRAME_ENABLED", "true").lower() == "true"
     MULTI_FRAME_COUNT: int = int(os.getenv("MULTI_FRAME_COUNT", "3"))
-    MULTI_FRAME_INTERVAL_SECONDS: int = int(os.getenv("MULTI_FRAME_INTERVAL_SECONDS", "5"))
+    MULTI_FRAME_INTERVAL_SECONDS: int = int(os.getenv("MULTI_FRAME_INTERVAL_SECONDS", "10"))
 
     # Storage
     CAPTURE_RETENTION_DAYS: int = int(os.getenv("CAPTURE_RETENTION_DAYS", "3"))

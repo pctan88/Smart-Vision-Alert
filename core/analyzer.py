@@ -29,6 +29,62 @@ log = get_logger()
 
 
 # ══════════════════════════════════════════════════════════════
+# PER-CAMERA LAYOUT DESCRIPTIONS
+# ══════════════════════════════════════════════════════════════
+# Key = camera DID (from Xiaomi). Update the keys once you confirm
+# which DID maps to which physical camera (see migrate_session_to_gcs.py).
+# If a camera DID is not listed here, GENERIC_LAYOUT is used as fallback.
+
+CAMERA_LAYOUTS: dict[str, str] = {
+
+    # ── Camera 1066815174: top-corner bird's-eye view ─────────
+    # High corner mount, steep downward angle. Mirror on LEFT, windows on RIGHT.
+    "1066815174": """
+- **Camera angle**: Mounted HIGH in a corner, angled STEEPLY DOWNWARD (bird's eye view).
+  People appear small and viewed from above — legs/feet prominent, faces less visible.
+- **Mirror**: Large floor-to-ceiling mirror on the LEFT wall ONLY.
+  Reflections appear on the LEFT side of the frame — do NOT count them as real people.
+- **Windows**: Two large windows on the RIGHT wall — bright natural light from the right.
+  Silhouettes near the right are normal, not hazards.
+- **Main practice area**: CENTRE open floor — focus all safety analysis here.
+- **Right-side storage**: Bags, shoes, and equipment permanently stored along the right wall — NOT hazards.
+- **Aerial apparatus**: Hoops (lyra) hang from the ceiling in the centre area.
+- **Timestamp overlay**: Top-left corner shows Xiaomi camera date/time — ignore for safety analysis.""",
+
+    # ── Camera 1066840805: side-elevated view facing the door ─
+    # Elevated but more side-on, facing the door entry. Window on LEFT, mirror on RIGHT (door wall).
+    "1066840805": """
+- **Camera angle**: Elevated, side-on view facing the door entry. More perspective depth than
+  the other camera — people appear fuller in frame.
+- **Left side**: Large window with curtains — bright backlight from the left is normal.
+  People near the left window may appear as silhouettes — not a hazard.
+- **Left-centre foreground**: Aerial silks/ropes hang from the ceiling and are visible as
+  dark vertical lines in the foreground — this is permanent equipment, not a hazard.
+- **Mirror**: On the RIGHT/door-side wall. Reflections appear on the RIGHT side — not real people.
+- **Back-right storage area**: Aerial hoops leaning against the wall, colourful silks hanging,
+  crash mats stacked — all permanent fixtures, NOT hazards.
+- **Right side**: Door entry, trolley, fan/AC unit — permanent, not hazards.
+- **Main practice area**: CENTRE open floor — focus all safety analysis here.
+- **Aerial apparatus**: Hoops (lyra) and silks in the centre and left-centre area.
+- **Timestamp overlay**: Top-left corner shows Xiaomi camera date/time — ignore for safety analysis.""",
+}
+
+# Fallback if camera DID not yet mapped
+GENERIC_LAYOUT = """
+- **Mirror**: One or more large floor-to-ceiling mirrors on a wall — reflections are NOT real people.
+- **Windows**: Large windows provide bright natural light — silhouettes near windows are normal.
+- **Storage area**: Bags, shoes, equipment, hoops, and mats stored near walls — NOT hazards.
+- **Main practice area**: The open centre floor — focus safety analysis here.
+- **Aerial apparatus**: Hoops (lyra) and silks hang from the ceiling — normal equipment.
+- **Timestamp overlay**: Top-left corner shows Xiaomi camera date/time — ignore for safety analysis."""
+
+
+def get_camera_layout(camera_did: str) -> str:
+    """Return the layout description for a specific camera DID, or the generic fallback."""
+    return CAMERA_LAYOUTS.get(camera_did, GENERIC_LAYOUT)
+
+
+# ══════════════════════════════════════════════════════════════
 # PROMPTS
 # ══════════════════════════════════════════════════════════════
 
@@ -37,13 +93,14 @@ SINGLE_FRAME_PROMPT = """You are an AI safety monitoring system for an **Aerial 
 
 Aerial dance involves performers using apparatus such as aerial silks, aerial hoop (lyra), trapeze, and aerial hammock to perform acrobatic moves while suspended in the air.
 
-Analyze this CCTV image and determine if there is any safety concern, accident, or emergency happening.
+## STUDIO LAYOUT — know this before analysing:
+{camera_layout}
 
 ## What to check for (aerial dance specific):
 
 ### CRITICAL (risk_level = "critical"):
 - Person fallen on the floor and appears injured or unconscious
-- Person tangled/stuck in aerial silks or apparatus and appears distressed
+- Person tangled/stuck in aerial apparatus and appears distressed
 - Person hanging limp/motionless in the air (possible loss of consciousness)
 - Fire, smoke, or sparks in the studio
 - Equipment (rigging, mount point) visibly broken or failing
@@ -52,7 +109,7 @@ Analyze this CCTV image and determine if there is any safety concern, accident, 
 - Person lying on the floor in an unnatural position
 - Apparatus (silks, hoop) appears to be tearing or fraying
 - Person appears to be falling or in an uncontrolled descent
-- Visible injury (blood, etc.)
+- Visible injury
 
 ### MEDIUM (risk_level = "medium"):
 - Person on the floor who may have just fallen (but appears conscious/moving)
@@ -60,30 +117,31 @@ Analyze this CCTV image and determine if there is any safety concern, accident, 
 - Unsafe practice observed (no crash mat, too close to walls)
 
 ### LOW (risk_level = "low"):
-- Minor safety concern (e.g., water spill on floor, cluttered space)
-- Mats not properly positioned
+- Minor safety concern (e.g., water spill on floor, mats not positioned)
 
 ### SAFE (risk_level = "safe"):
-- Normal aerial practice session in progress
+- Normal aerial practice in progress
 - Studio is empty
 - People stretching, warming up, or resting normally
-- Performer safely practicing on apparatus (even if inverted — this is normal for aerial)
+- Performer safely practising on apparatus (even if inverted — this is NORMAL for aerial)
 
-## IMPORTANT CONTEXT:
-- People being upside down, inverted, or in unusual positions on aerial apparatus is **NORMAL** and **NOT an accident**
-- People wrapping themselves in fabric while in the air is **NORMAL aerial silk technique**
-- The studio may have crash mats, mirrors, and various aerial equipment — this is expected
-- Only flag something if there are genuine signs of distress, injury, or equipment failure
+## IMPORTANT:
+- Inverted, wrapped, or unusual positions on apparatus = **NORMAL**, not an accident
+- Mirror reflections on left wall = **NOT real people**
+- Silhouettes near right windows = **normal lighting**, not a hazard
+- Stored bags/items on right side = **permanent fixtures**, not hazards
+- Only flag genuine signs of distress, injury, or equipment failure
 
 ## Response format:
 Respond ONLY with this JSON (no markdown, no code blocks, just raw JSON):
-{
+{{
     "is_safe": true or false,
     "risk_level": "safe" or "low" or "medium" or "high" or "critical",
+    "people_count": integer (real people only in the centre area, not mirror reflections),
     "description": "Brief description of what you observe in the image",
     "detected_hazards": ["list", "of", "specific", "hazards"] or [] if safe,
     "confidence": 0.0 to 1.0
-}
+}}
 """
 
 
@@ -91,79 +149,142 @@ Respond ONLY with this JSON (no markdown, no code blocks, just raw JSON):
 MULTI_FRAME_PROMPT = """You are an AI safety monitoring system for an **Aerial Dance Studio** equipped with CCTV cameras.
 
 You are given a **SEQUENCE of {frame_count} images** captured approximately {interval} seconds apart from the same camera.
+Each image is labelled with its capture time offset (T+0s, T+{interval}s, …).
 The images are in chronological order: Image 1 is the OLDEST, Image {frame_count} is the MOST RECENT.
 
-Your task is to:
-1. Analyze each image for immediate safety hazards
-2. **COMPARE the images** to detect movement, changes, or LACK of movement
-3. Pay special attention to **STILLNESS** — a person who hasn't moved between frames may be in danger
+## STUDIO LAYOUT — know this before analysing:
+{camera_layout}
+- **Crash mats**: Blue/grey foam pads on the floor are normal and expected.
 
-## CRITICAL TEMPORAL PATTERNS TO DETECT:
+## YOUR ANALYSIS TASKS (in order of priority):
 
-### Person Motionless (HIGHEST PRIORITY):
-- If a person is in the **same position** across multiple frames, especially:
-  - Hanging in the air without movement → possible unconsciousness/entanglement
-  - Lying on the floor without any change in position → possible injury
-  - Slumped against equipment without movement → possible medical emergency
-- Even subtle differences (slight arm movement, head turn) mean they are likely OK
-- Complete stillness across 3+ frames with a person in a vulnerable position = CRITICAL
+### 1. PARTIAL BODY LOCK — Subtle Struggling (HIGHEST PRIORITY)
+This is the hardest pattern to detect. The person IS moving overall, but ONE body part
+(leg, foot, hand, or clothing) appears anchored/stuck to the apparatus while the rest of the body
+moves around it.
 
-### Movement Change Patterns:
-- Person was on apparatus in earlier frames → now on floor = POSSIBLE FALL
-- Person was standing → now lying down = POSSIBLE COLLAPSE
-- Equipment position changed dramatically = POSSIBLE EQUIPMENT FAILURE
-- Smoke/fire appearing in later frames = FIRE HAZARD
+**IMPORTANT CONTEXT FOR AERIAL DANCE:**
+Aerial movements are naturally fast and dynamic — positions change every few seconds.
+If a body part stays in the same position relative to the apparatus for an unusually long time
+while the rest of the body is actively moving, that is a strong signal of entanglement.
 
-### Normal Movement (NOT emergencies):
-- Person changing poses on aerial silks/hoop = NORMAL practice
-- Person climbing up or coming down from apparatus = NORMAL
-- Person resting between attempts (sitting/standing normally) = NORMAL
-- Person leaving or entering the frame = NORMAL
-- Gradual, controlled transitions between positions = NORMAL
+Signs to look for across frames:
+- A limb that **does not change its position relative to the hoop/silk** even as the torso,
+  other limbs, or body weight shifts — especially a leg/foot that stays hooked or pressed against
+  the hoop rim across multiple frames while the upper body moves freely.
+- The person **bending toward the stuck point** then pulling away — a pull-release cycle that
+  does not free the limb (same micro-movement repeated at the same spot).
+- Body weight leaning AWAY from the apparatus while one contact point stays fixed.
+- Clothing (waistband, trouser hem, sleeve) visibly bunched or creased at the contact point
+  in a way that persists across frames.
 
-## IMPORTANT CONTEXT:
-- People being upside down, inverted, or in unusual positions on aerial apparatus is **NORMAL**
-- People wrapping themselves in fabric while in the air is **NORMAL aerial silk technique**
-- A person maintaining the SAME unusual position for many seconds WITHOUT any motion is CONCERNING
-- The key question is: **Is the person CHOOSING to be still, or are they UNABLE to move?**
-- Signs of distress: limp body, head drooping, arms dangling without tension
+**STEP A — Count how many consecutive frames show the stuck body part.**
+Use the T+ timestamps to determine when the issue started and ended.
+Set `partial_body_lock_frames` to the total number of frames where the stuck body part was observed.
+
+**STEP B — Check the final frames. Is the person free and moving normally by the end?**
+Set `partial_body_lock_resolved` to true if the person is visibly free and moving normally
+in the last 1–2 frames. Set to false if they are still stuck at the end of the sequence.
+
+**STEP C — Assign risk using BOTH duration AND resolution:**
+
+Person is STILL STUCK at end of sequence (partial_body_lock_resolved = false):
+- 1–2 frames stuck (~{interval_x2}s)  → "low"    (brief, may be intentional)
+- 3–4 frames stuck (~{interval_x3}s–{interval_x4}s) → "medium"  (likely struggling)
+- 5–6 frames stuck (~{interval_x5}s–{interval_x6}s) → "high"    (clearly stuck, needs help)
+- 6+ frames stuck                        → "high"    (prolonged entanglement)
+- Any duration + visible distress (hard pulling, bent over, unable to stand) → "critical"
+
+Person has RESOLVED and is back to normal (partial_body_lock_resolved = true):
+- Was stuck < {interval_x3}s (1–2 frames) → "safe"   (brief contact, self-resolved quickly)
+- Was stuck {interval_x3}s–{interval_x5}s (3–4 frames) → "low"  (struggled for ~30–40s but recovered)
+- Was stuck {interval_x6}s+ (6+ frames)   → "low"    (prolonged struggle but self-resolved — worth noting)
+- Was stuck + showed visible distress, now resolved → "low" (serious event but recovered)
+
+Add to detected_hazards: "entanglement — [body part] stuck on apparatus for ~Xs [resolved/unresolved]"
+
+### 2. FULL-BODY STILLNESS (HIGHEST PRIORITY for unconsciousness):
+- Person in the **same overall position** across 3+ frames in a vulnerable situation:
+  - Hanging in the air without any movement → possible unconsciousness
+  - Lying on the floor without position change → possible injury/collapse
+  - Slumped against equipment motionless → possible medical emergency
+- Even a small head turn or arm shift means they are likely conscious and OK.
+- Complete stillness across 3+ frames + vulnerable position = CRITICAL.
+
+### 3. MOVEMENT CHANGE PATTERNS:
+- On apparatus in early frames → on floor in later frames = POSSIBLE FALL → "high"
+- Standing → lying down = POSSIBLE COLLAPSE → "high"
+- Equipment swinging uncontrolled or dramatically repositioned = EQUIPMENT FAILURE → "high"
+- Fire/smoke appearing = FIRE HAZARD → "critical"
+
+### 4. NORMAL MOVEMENT (do NOT flag these):
+- Changing poses on silks/hoop, climbing, descending = normal practice
+- Resting sitting or standing between attempts = normal
+- Deliberate slow holds or balances where the person is visibly in control = normal
+- Gradual controlled transitions = normal
+
+## KEY QUESTION TO ASK FOR EVERY FRAME SEQUENCE:
+"Is each body part moving in a **purposeful, free** way — or does any body part appear
+**unable to move freely** even though the person is trying to move it?"
 
 ## Response format:
 Respond ONLY with this JSON (no markdown, no code blocks, just raw JSON):
 {{
     "is_safe": true or false,
     "risk_level": "safe" or "low" or "medium" or "high" or "critical",
+    "people_count": integer (real people only, not mirror reflections),
     "description": "What you observe across the sequence of images",
     "detected_hazards": ["list", "of", "specific", "hazards"] or [] if safe,
     "confidence": 0.0 to 1.0,
     "motion_detected": true or false,
+    "partial_body_lock": true or false,
+    "partial_body_lock_frames": integer (0 if none, else number of frames where stuck body part was observed),
+    "partial_body_lock_resolved": true or false (true = person is free and normal by end of video),
     "scene_change_level": "none" or "minimal" or "moderate" or "significant",
     "stillness_warning": true or false,
-    "temporal_description": "Describe what changed or didn't change between frames"
+    "temporal_description": "Describe what changed across frames. If partial body lock detected: state which body part, from which T+ timestamp it started, how many seconds it lasted, and whether it was resolved by the end."
 }}
 
 ## OUTPUT INSTRUCTIONS:
 - You MUST output ONLY a valid JSON object.
 - DO NOT include any preamble, conversational filler, or internal monologue.
-- Keep `description` and `temporal_description` concise (max 2 sentences each).
+- Keep `description` concise (max 2 sentences). `temporal_description` may be up to 4 sentences.
 - Ensure all fields in the schema are present.
 
-## DECISION GUIDE:
-- motion_detected = false + person visible in aerial position → risk_level "high" or "critical"
-- motion_detected = false + person on floor → risk_level "high" or "critical"
-- motion_detected = false + studio empty → risk_level "safe" (no one to be in danger)
-- motion_detected = true + normal movement → risk_level "safe"
-- scene_change_level "none" + person present = CONCERNING (potential stillness emergency)
+## DECISION GUIDE (apply in order):
+ENTANGLEMENT — still stuck at end:
+  partial_body_lock_frames 1–2,  resolved=false → "low"
+  partial_body_lock_frames 3–4,  resolved=false → "medium"
+  partial_body_lock_frames 5–6+, resolved=false → "high"
+  partial_body_lock + distress,  resolved=false → "critical"
+
+ENTANGLEMENT — self-resolved by end of video:
+  partial_body_lock_frames 1–2,  resolved=true  → "safe"  (brief, no concern)
+  partial_body_lock_frames 3–5,  resolved=true  → "low"   (struggled ~30–50s, recovered)
+  partial_body_lock_frames 6+,   resolved=true  → "low"   (prolonged but self-resolved)
+  partial_body_lock + distress,  resolved=true  → "low"   (serious event, now recovered)
+
+FULL-BODY STILLNESS:
+  motion_detected=false + person in aerial/floor position → "high" or "critical"
+  motion_detected=false + studio empty → "safe"
+
+NORMAL:
+  motion_detected=true + partial_body_lock=false + normal movement → "safe"
+  scene_change_level "none" + person present → "high" or "critical"
 """
 
 
 class AnalysisSchema(typing.TypedDict):
     is_safe: bool
     risk_level: str
+    people_count: int
     description: str
     detected_hazards: list[str]
     confidence: float
     motion_detected: bool
+    partial_body_lock: bool
+    partial_body_lock_frames: int
+    partial_body_lock_resolved: bool
     scene_change_level: str
     stillness_warning: bool
     temporal_description: str
@@ -212,12 +333,13 @@ class SafetyAnalyzer:
         log.info(f"Gemini AI configured ({self.settings.GEMINI_MODEL})")
 
     # ── Single-Frame Analysis ─────────────────────────────────
-    def analyze(self, image_path: str) -> AnalysisResult:
+    def analyze(self, image_path: str, camera_did: str = "") -> AnalysisResult:
         """
         Analyze a single CCTV image for safety hazards.
 
         Args:
-            image_path: Path to the image file to analyze.
+            image_path:  Path to the image file to analyze.
+            camera_did:  Xiaomi device ID — used to inject camera-specific layout context.
 
         Returns:
             AnalysisResult with safety assessment.
@@ -225,11 +347,12 @@ class SafetyAnalyzer:
         try:
             log.info(f"[Single-Frame] Analyzing image: {image_path}")
 
+            prompt   = SINGLE_FRAME_PROMPT.format(camera_layout=get_camera_layout(camera_did))
             img_part = self._load_image_part(image_path)
 
             response = self.client.models.generate_content(
                 model=self.settings.GEMINI_MODEL,
-                contents=[SINGLE_FRAME_PROMPT, img_part],
+                contents=[prompt, img_part],
                 config=self._gen_config,
             )
 
@@ -249,7 +372,8 @@ class SafetyAnalyzer:
             return AnalysisResult.error_result(str(e))
 
     # ── Multi-Frame Temporal Analysis ─────────────────────────
-    def analyze_multi_frame(self, image_paths: list[str]) -> AnalysisResult:
+    def analyze_multi_frame(self, image_paths: list[str],
+                             camera_did: str = "") -> AnalysisResult:
         """
         Analyze multiple sequential CCTV images for safety hazards
         with temporal/motion comparison.
@@ -257,6 +381,7 @@ class SafetyAnalyzer:
         Args:
             image_paths: List of image file paths in chronological order
                          (oldest first, newest last).
+            camera_did:  Xiaomi device ID — used to inject camera-specific layout context.
 
         Returns:
             AnalysisResult with safety + temporal assessment.
@@ -266,10 +391,10 @@ class SafetyAnalyzer:
 
         if len(image_paths) == 1:
             log.info("Only 1 frame available — falling back to single-frame analysis")
-            return self.analyze(image_paths[0])
+            return self.analyze(image_paths[0], camera_did=camera_did)
 
         frame_count = len(image_paths)
-        interval = self.settings.MULTI_FRAME_INTERVAL_SECONDS
+        interval    = self.settings.MULTI_FRAME_INTERVAL_SECONDS
 
         try:
             log.info(
@@ -278,8 +403,14 @@ class SafetyAnalyzer:
             )
 
             prompt = MULTI_FRAME_PROMPT.format(
+                camera_layout=get_camera_layout(camera_did),
                 frame_count=frame_count,
                 interval=interval,
+                interval_x2=interval * 2,
+                interval_x3=interval * 3,
+                interval_x4=interval * 4,
+                interval_x5=interval * 5,
+                interval_x6=interval * 6,
             )
 
             # Build content: [prompt, "Image 1:", part1, "Image 2:", part2, ...]

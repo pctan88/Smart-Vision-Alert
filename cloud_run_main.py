@@ -86,8 +86,11 @@ def save_session_gcs(state: dict):
 
 # ── ffmpeg frame extraction ────────────────────────────────────────────────────
 
+FRAME_INTERVAL_SECS = 10  # one frame every N seconds evenly across the event
+
+
 def _frames_from_raw_ffmpeg(raw_bytes: bytes, label: str, out_dir: str,
-                             max_frames: int = SEGMENT_SECS * FRAME_FPS) -> list[str]:
+                             max_frames: int = 1) -> list[str]:
     """Write decrypted MPEG-TS bytes to temp file, extract frames with ffmpeg."""
     os.makedirs(out_dir, exist_ok=True)
 
@@ -120,26 +123,27 @@ def _frames_from_raw_ffmpeg(raw_bytes: bytes, label: str, out_dir: str,
     return sorted(glob.glob(os.path.join(out_dir, f"{label}_*.jpg")))
 
 
-def extract_segment_ffmpeg(m3u8_url: str, out_dir: str, label: str,
-                            start_sec: float, duration_sec: float = SEGMENT_SECS,
-                            auth_session: Optional[requests.Session] = None) -> list[str]:
-    """Fetch, decrypt, and extract frames from an HLS segment window via ffmpeg."""
-    sess = auth_session or requests.Session()
+def extract_frame_at(m3u8_url: str, out_dir: str, label: str,
+                      at_sec: float,
+                      auth_session: Optional[requests.Session] = None) -> Optional[str]:
+    """Fetch, decrypt, and extract ONE frame at the given timestamp from an HLS stream."""
+    sess     = auth_session or requests.Session()
+    window   = SEGMENT_SECS  # download a small window around the target second
 
     r = sess.get(m3u8_url, timeout=15)
     if not r.ok:
-        return []
+        return None
     manifest = _parse_m3u8(r.text)
     if not manifest["segments"]:
-        return []
+        return None
 
     try:
         aes_key = _fetch_aes_key(manifest["key_url"], sess)
     except Exception:
-        return []
+        return None
 
     iv          = manifest["iv"]
-    target_segs = _segments_for_window(manifest["segments"], start_sec, duration_sec)
+    target_segs = _segments_for_window(manifest["segments"], at_sec, window)
     if not target_segs:
         target_segs = manifest["segments"]
 
@@ -152,13 +156,11 @@ def extract_segment_ffmpeg(m3u8_url: str, out_dir: str, label: str,
             continue
 
     if not raw_chunks:
-        return []
+        return None
 
     combined = b"".join(raw_chunks)
-    return _frames_from_raw_ffmpeg(
-        combined, label, out_dir,
-        max_frames=int(duration_sec * FRAME_FPS),
-    )
+    frames   = _frames_from_raw_ffmpeg(combined, label, out_dir, max_frames=1)
+    return frames[0] if frames else None
 
 
 # ── A2 internal API ────────────────────────────────────────────────────────────
@@ -260,32 +262,33 @@ def capture_event_frames(state: dict, cam: dict, event: dict, ev_dir: str) -> di
     """
     Extract frames for AI analysis using ffmpeg (full support on Cloud Run).
 
-    Segments captured:
-      - thumbnail  : event keyframe via Xiaomi processor API (instant)
-      - first_vid  : first 5s of HLS video
-      - last        : last 5s of HLS video
-      - t0060s ...  : every 60s interval for long events
+    Strategy: one frame every FRAME_INTERVAL_SECS across the full event duration.
+    - Thumbnail : Xiaomi keyframe (used as Telegram alert image)
+    - t0000s    : frame at T+0s
+    - t0010s    : frame at T+10s
+    - t0020s    : frame at T+20s  … and so on
     """
     log      = get_logger()
     fid      = event["fileId"]
     duration = 0.0
     os.makedirs(ev_dir, exist_ok=True)
 
-    segments_captured = []
+    all_frames   = []
+    alert_image  = None  # thumbnail used for Telegram photo
 
-    # ── thumbnail ──────────────────────────────────────────────────────────
-    first_dir  = os.path.join(ev_dir, "first")
-    os.makedirs(first_dir, exist_ok=True)
-    thumb_path = os.path.join(first_dir, "thumb_00.jpg")
+    # ── thumbnail (alert image only — not sent to AI) ──────────────────────
+    thumb_dir  = os.path.join(ev_dir, "thumb")
+    os.makedirs(thumb_dir, exist_ok=True)
+    thumb_path = os.path.join(thumb_dir, "thumb_00.jpg")
     saved = download_thumbnail(state, event, thumb_path,
                                did=cam["did"], model=cam["model"])
     if saved:
-        segments_captured.append({"label": "first", "frames": [saved]})
+        alert_image = saved
         log.info(f"Thumbnail captured: {os.path.basename(saved)}")
     else:
         log.warning(f"Thumbnail download failed for {fid}")
 
-    # ── HLS video frames via ffmpeg ────────────────────────────────────────
+    # ── HLS frames at every FRAME_INTERVAL_SECS ────────────────────────────
     try:
         http     = _make_http_session(state)
         m3u8_url = get_m3u8_url(state, cam, event)
@@ -294,51 +297,44 @@ def capture_event_frames(state: dict, cam: dict, event: dict, ev_dir: str) -> di
         if r.ok:
             duration = _parse_m3u8(r.text).get("total_duration", 0) or 0
 
-        # First 5s
-        frames = extract_segment_ffmpeg(
-            m3u8_url, os.path.join(ev_dir, "first_vid"),
-            "first_vid", start_sec=0.0, auth_session=http,
-        )
-        if frames:
-            segments_captured.append({"label": "first_vid", "frames": frames})
+        if duration > 0:
+            marks = range(0, int(duration) + 1, FRAME_INTERVAL_SECS)
+        else:
+            marks = [0]  # fallback: at least try T+0s
 
-        # Last 5s
-        if duration > SEGMENT_SECS * 2:
-            last_start = max(0.0, duration - SEGMENT_SECS)
-            frames = extract_segment_ffmpeg(
-                m3u8_url, os.path.join(ev_dir, "last"),
-                "last", start_sec=last_start, auth_session=http,
+        for mark in marks:
+            lbl     = f"t{mark:04d}s"
+            out_dir_frame = os.path.join(ev_dir, lbl)
+            frame = extract_frame_at(
+                m3u8_url, out_dir_frame, lbl,
+                at_sec=float(mark), auth_session=http,
             )
-            if frames:
-                segments_captured.append({"label": "last", "frames": frames})
-
-        # Every 60s interval
-        if duration > MINUTE_MARK:
-            mark = float(MINUTE_MARK)
-            while mark < duration - SEGMENT_SECS:
-                lbl    = f"t{int(mark):04d}s"
-                frames = extract_segment_ffmpeg(
-                    m3u8_url, os.path.join(ev_dir, lbl),
-                    lbl, start_sec=mark, auth_session=http,
-                )
-                if frames:
-                    segments_captured.append({"label": lbl, "frames": frames})
-                mark += MINUTE_MARK
+            if frame:
+                all_frames.append(frame)
+                log.info(f"  Frame T+{mark}s → {os.path.basename(frame)}")
 
     except Exception as e:
         log.warning(f"Video extraction failed for {fid}: {e}")
 
-    total = sum(len(s["frames"]) for s in segments_captured)
+    # Fallback: if no video frames, use thumbnail for AI too
+    if not all_frames and alert_image:
+        all_frames = [alert_image]
+        log.warning("No video frames extracted — using thumbnail for AI analysis")
+
+    log.info(f"Total frames for AI: {len(all_frames)} over {duration:.0f}s "
+             f"(1 frame every {FRAME_INTERVAL_SECS}s)")
+
     return {
-        "fileId":    fid,
-        "eventType": event.get("eventType"),
-        "time":      datetime.datetime.fromtimestamp(
-                         event.get("createTime", 0) / 1000, tz=LOCAL_TZ
-                     ).strftime("%Y-%m-%d %H:%M:%S %Z"),
-        "duration":  duration,
-        "segments":  segments_captured,
-        "frames":    total,
-        "dir":       ev_dir,
+        "fileId":       fid,
+        "eventType":    event.get("eventType"),
+        "time":         datetime.datetime.fromtimestamp(
+                            event.get("createTime", 0) / 1000, tz=LOCAL_TZ
+                        ).strftime("%Y-%m-%d %H:%M:%S %Z"),
+        "duration":     duration,
+        "frames":       len(all_frames),
+        "all_frames":   all_frames,
+        "alert_image":  alert_image,
+        "dir":          ev_dir,
     }
 
 
@@ -431,27 +427,14 @@ def run_pipeline(manual_check: bool = False) -> dict:
                 log.error(f"Frame capture failed for {fid}: {e}")
                 continue
 
-            if not capture["segments"]:
+            if not capture["all_frames"]:
                 log.warning(f"No frames captured for {fid}")
                 continue
 
-            # ── pick segment to analyze ────────────────────────────────
-            analyze_seg = None
-            if manual_check:
-                analyze_seg = next(
-                    (s for s in capture["segments"] if s["label"] == "last"), None
-                )
-            if not analyze_seg:
-                analyze_seg = next(
-                    (s for s in capture["segments"] if s["label"] == "first"), None
-                )
-            if not analyze_seg or not analyze_seg["frames"]:
-                log.warning(f"No frames to analyze for {fid}")
-                continue
-
-            # ── AI analysis ────────────────────────────────────────────
+            # ── AI analysis (all frames, evenly spaced) ────────────────
             try:
-                result = analyzer.analyze_multi_frame(analyze_seg["frames"])
+                result = analyzer.analyze_multi_frame(capture["all_frames"],
+                                                       camera_did=cam.get("did", ""))
                 log.info(
                     f"AI: {'SAFE' if result.is_safe else 'UNSAFE'} "
                     f"risk={result.risk_level} confidence={result.confidence:.0%}"
@@ -466,7 +449,7 @@ def run_pipeline(manual_check: bool = False) -> dict:
             force_alert = manual_check and is_latest
 
             if force_alert or settings.risk_exceeds_threshold(result.risk_level):
-                alert_image = analyze_seg["frames"][0]
+                alert_image = capture["alert_image"] or capture["all_frames"][0]
                 try:
                     telegram_ok = notifier.send_alert(result, alert_image)
                     alert_sent  = True
@@ -475,7 +458,7 @@ def run_pipeline(manual_check: bool = False) -> dict:
                     log.error(f"Telegram alert failed: {e}")
 
             # ── POST results to A2 (AFTER alert) ──────────────────────
-            event_dt   = datetime.datetime.fromtimestamp(
+            event_dt    = datetime.datetime.fromtimestamp(
                 ev.get("createTime", 0) / 1000, tz=LOCAL_TZ
             )
             capture_dir = f"captures/studio/{cam['did']}/{fid}"
@@ -489,20 +472,23 @@ def run_pipeline(manual_check: bool = False) -> dict:
                 "frames_saved": capture["frames"],
                 "capture_dir":  capture_dir,
                 "analysis": {
-                    "is_safe":         result.is_safe,
-                    "risk_level":      result.risk_level,
-                    "description":     result.description,
-                    "hazards":         result.detected_hazards,
-                    "confidence":      result.confidence,
-                    "motion_detected": result.motion_detected,
-                    "stillness_warn":  result.stillness_warning,
-                    "segment_label":   analyze_seg["label"],
+                    "is_safe":              result.is_safe,
+                    "risk_level":           result.risk_level,
+                    "description":          result.description,
+                    "hazards":              result.detected_hazards,
+                    "confidence":           result.confidence,
+                    "motion_detected":      result.motion_detected,
+                    "partial_body_lock":    result.partial_body_lock,
+                    "partial_body_lock_frames": result.partial_body_lock_frames,
+                    "stillness_warn":       result.stillness_warning,
                 },
                 "alert_sent":   alert_sent,
                 "telegram_ok":  telegram_ok,
             }
 
-            alert_image_path = analyze_seg["frames"][0] if analyze_seg["frames"] else None
+            alert_image_path = capture["alert_image"] or (
+                capture["all_frames"][0] if capture["all_frames"] else None
+            )
             a2_save_result(payload, alert_image_path)
 
         results["cameras"].append(cam_name)

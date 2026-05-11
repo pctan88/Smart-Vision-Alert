@@ -167,9 +167,17 @@ class TelegramNotifier:
             motion_text = "Detected" if result.motion_detected else "NO MOTION"
             message += f"━━━━━━━━━━━━━━━━━━━━\n"
             message += f"🎬 Frames Analyzed: {result.frames_analyzed}\n"
+            if result.people_count > 0:
+                message += f"👤 People Detected: {result.people_count}\n"
             message += f"{motion_icon} Motion: {motion_text}\n"
+            if result.partial_body_lock:
+                stuck_secs = result.partial_body_lock_frames * self.settings.MULTI_FRAME_INTERVAL_SECONDS
+                if result.partial_body_lock_resolved:
+                    message += f"🟡 *ENTANGLEMENT \\(resolved\\) — stuck ~{stuck_secs}s, person recovered*\n"
+                else:
+                    message += f"⚠️ *ENTANGLEMENT WARNING — stuck on apparatus for ~{stuck_secs}s \\({result.partial_body_lock_frames} frames\\)*\n"
             if result.stillness_warning:
-                message += f"🔴 *STILLNESS WARNING*\n"
+                message += f"🔴 *STILLNESS WARNING — person may be unconscious or unable to move*\n"
             if result.temporal_description:
                 temporal = self._escape_md(result.temporal_description)
                 message += f"🔄 {temporal}\n"
