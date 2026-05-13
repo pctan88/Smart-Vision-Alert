@@ -29,7 +29,11 @@ from core.database import EventDB
 from core.models import AnalysisResult
 
 app = Flask(__name__)
-app.secret_key = os.getenv("PORTAL_SECRET_KEY") or settings.WEBHOOK_SECRET
+app.secret_key = (
+    os.getenv("PORTAL_SECRET_KEY")
+    or settings.WEBHOOK_SECRET
+    or "sva-portal-fallback-key-set-PORTAL_SECRET_KEY-in-env"
+)
 notifier = TelegramNotifier(settings)
 
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -505,7 +509,14 @@ def portal_login():
             return render_template("login.html")
 
         pwhash = user.get("password_hash") if user else None
-        if user and pwhash and check_password_hash(pwhash, password):
+        try:
+            password_ok = bool(user and pwhash and check_password_hash(pwhash, password))
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"Password check error: {e}", exc_info=True)
+            password_ok = False
+
+        if password_ok:
             try:
                 db = _db()
                 try:
@@ -521,15 +532,21 @@ def portal_login():
                 import logging
                 logging.getLogger(__name__).error(f"Failed to update last_login: {e}")
 
-            session.permanent = remember
-            app.permanent_session_lifetime = timedelta(days=14)
-            session["user"] = {
-                "id": user.get("id"),
-                "username": user.get("username"),
-                "display_name": user.get("display_name") or user.get("username"),
-                "role": user.get("role", "viewer"),
-            }
-            return redirect(request.args.get("next") or url_for("portal_dashboard"))
+            try:
+                session.permanent = remember
+                app.permanent_session_lifetime = timedelta(days=14)
+                session["user"] = {
+                    "id": user.get("id"),
+                    "username": user.get("username"),
+                    "display_name": user.get("display_name") or user.get("username"),
+                    "role": user.get("role", "viewer"),
+                }
+                return redirect(request.args.get("next") or url_for("portal_dashboard"))
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).error(f"Session/redirect error: {e}", exc_info=True)
+                flash(f"Login error ({type(e).__name__}): {e}", "error")
+                return render_template("login.html")
 
         flash("Invalid operator ID or authentication key.", "error")
 
