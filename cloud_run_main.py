@@ -87,7 +87,8 @@ def save_session_gcs(state: dict):
 
 # ── ffmpeg frame extraction ────────────────────────────────────────────────────
 
-FRAME_INTERVAL_SECS = 10  # one frame every N seconds evenly across the event
+FRAME_INTERVAL_SECS = 10   # one frame every N seconds evenly across the event
+MAX_CAPTURE_SECS    = 180  # only capture the last N seconds for long events (3 min)
 
 
 def _frames_from_raw_ffmpeg(raw_bytes: bytes, label: str, out_dir: str,
@@ -208,7 +209,7 @@ def a2_save_result(
                     data={"payload": json.dumps(payload)},
                     files=files,
                     headers=_a2_headers(),
-                    timeout=30,
+                    timeout=120,
                 )
         else:
             requests.post(
@@ -313,7 +314,8 @@ def capture_event_frames(state: dict, cam: dict, event: dict, ev_dir: str) -> di
             duration = _parse_m3u8(r.text).get("total_duration", 0) or 0
 
         if duration > 0:
-            marks = range(0, int(duration) + 1, FRAME_INTERVAL_SECS)
+            start_offset = max(0, int(duration) - MAX_CAPTURE_SECS)
+            marks = range(start_offset, int(duration) + 1, FRAME_INTERVAL_SECS)
         else:
             marks = [0]  # fallback: at least try T+0s
 
@@ -521,9 +523,15 @@ def run_pipeline(manual_check: bool = False) -> dict:
             alert_image_path = capture["alert_image"] or (
                 capture["all_frames"][0] if capture["all_frames"] else None
             )
-            upload_frames = capture["all_frames"] or (
-                [alert_image_path] if alert_image_path else []
-            )
+            # Include thumbnail + all video frames so portal can display the full sequence
+            upload_frames = []
+            if alert_image_path and os.path.exists(alert_image_path):
+                upload_frames.append(alert_image_path)
+            for f in capture["all_frames"]:
+                if f and os.path.exists(f) and f not in upload_frames:
+                    upload_frames.append(f)
+            if not upload_frames:
+                upload_frames = [alert_image_path] if alert_image_path else []
             a2_save_result(payload, alert_image_path, image_paths=upload_frames)
 
         results["cameras"].append(cam_name)

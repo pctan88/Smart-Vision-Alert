@@ -111,7 +111,7 @@ class Settings:
     LOGS_DIR: Path = PROJECT_ROOT / "logs"
 
     # Risk level ordering (for threshold comparison)
-    _RISK_LEVELS = {"safe": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
+    _RISK_LEVELS = {"safe": 0, "low": 1, "medium": 2, "high": 3, "critical": 4, "unknown": 5}
 
     def risk_exceeds_threshold(self, risk_level: str) -> bool:
         """Check if a given risk level meets or exceeds the alert threshold."""

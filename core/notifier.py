@@ -26,6 +26,7 @@ RISK_EMOJI = {
     "medium": "⚠️",
     "high": "🔴",
     "critical": "🚨",
+    "unknown": "❓",
 }
 
 RISK_LABEL = {
@@ -34,6 +35,7 @@ RISK_LABEL = {
     "medium": "MEDIUM",
     "high": "HIGH ⚡",
     "critical": "CRITICAL 🆘",
+    "unknown": "UNKNOWN — AI Parse Failed",
 }
 
 
