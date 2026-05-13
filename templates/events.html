@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Event Feed & Reports | Smart Vision Alert{% endblock %}
+{% block content_class %}event-content{% endblock %}
 
 {% block content %}
 <section class="page-head event-page-head">
@@ -57,7 +58,6 @@
           <col class="col-camera">
           <col class="col-event">
           <col class="col-risk">
-          <col class="col-action">
         </colgroup>
         <thead>
           <tr>
@@ -65,27 +65,25 @@
             <th>Camera</th>
             <th>Detected Event</th>
             <th>Risk Level</th>
-            <th>Action</th>
           </tr>
         </thead>
         <tbody>
           {% for event in events %}
-          <tr class="{% if selected and event.file_id == selected.file_id %}selected{% endif %}">
+          <tr
+            class="event-row {% if selected and event.file_id == selected.file_id %}selected{% endif %}"
+            data-event-url="{{ url_for('portal_events', page=current_page, window=filters.window, camera=filters.camera, risk=filters.risk, q=filters.q, event=event.file_id) }}"
+            tabindex="0"
+            role="link"
+            aria-label="Open details for {{ event.camera_name }} at {{ event.event_time_display }}"
+          >
             <td class="cell-time">{{ event.event_time_display }}</td>
-            <td class="cell-camera">{{ event.camera_name }}</td>
+            <td class="cell-camera" title="{{ event.camera_name }}">{{ event.camera_name }}</td>
             <td class="cell-event">
               <strong>{{ event.event_kind }}</strong>
               <small>{{ event.description or 'No analysis' }}</small>
             </td>
             <td class="cell-risk">
               <span class="risk-badge {{ event.risk_class }}">{{ event.risk_level or 'safe' }}</span>
-            </td>
-            <td>
-              <a
-                class="row-action"
-                href="{{ url_for('portal_events', page=current_page, window=filters.window, camera=filters.camera, risk=filters.risk, q=filters.q, event=event.file_id) }}"
-                aria-label="Open event details"
-              >›</a>
             </td>
           </tr>
           {% endfor %}
@@ -142,7 +140,9 @@
 
       <div class="main-frame-display" id="mainFrameDisplay">
         {% if frame_urls %}
-        <img src="{{ frame_urls[0] }}" alt="Captured frame 1" id="mainFrame">
+        <button class="main-frame-button" type="button" data-frame-open aria-label="Open captured frame image viewer">
+          <img src="{{ frame_urls[0] }}" alt="Captured frame 1" id="mainFrame">
+        </button>
         {% else %}
         <span>No frames available in local storage</span>
         {% endif %}
@@ -228,6 +228,21 @@
   </aside>
 </section>
 
+{% if frame_urls %}
+<div class="image-viewer-modal" id="imageViewerModal" hidden>
+  <div class="image-viewer-backdrop" data-image-viewer-close></div>
+  <div class="image-viewer-dialog" role="dialog" aria-modal="true" aria-label="Captured frame image viewer">
+    <button class="image-viewer-close" type="button" data-image-viewer-close aria-label="Close image viewer">×</button>
+    <img src="{{ frame_urls[0] }}" alt="Captured frame enlarged view" id="imageViewerFrame">
+    <div class="image-viewer-footer">
+      <button class="frame-nav-btn" type="button" data-viewer-prev>Prev</button>
+      <span class="frame-counter"><span id="viewerFrameNum">1</span> / {{ frame_urls|length }}</span>
+      <button class="frame-nav-btn" type="button" data-viewer-next>Next</button>
+    </div>
+  </div>
+</div>
+{% endif %}
+
 <script>
 const frameUrls = {{ frame_urls | tojson }};
 let currentFrameIndex = 0;
@@ -240,11 +255,19 @@ function updateFrame(index) {
   const currentFrameNum = document.getElementById("currentFrameNum");
   const prevBtn = document.getElementById("framePrevBtn");
   const nextBtn = document.getElementById("frameNextBtn");
+  const viewerFrame = document.getElementById("imageViewerFrame");
+  const viewerFrameNum = document.getElementById("viewerFrameNum");
+  const viewerPrevBtn = document.querySelector("[data-viewer-prev]");
+  const viewerNextBtn = document.querySelector("[data-viewer-next]");
 
   if (mainFrame) mainFrame.src = frameUrls[currentFrameIndex];
   if (currentFrameNum) currentFrameNum.textContent = currentFrameIndex + 1;
   if (prevBtn) prevBtn.disabled = currentFrameIndex === 0;
   if (nextBtn) nextBtn.disabled = currentFrameIndex === frameUrls.length - 1;
+  if (viewerFrame) viewerFrame.src = frameUrls[currentFrameIndex];
+  if (viewerFrameNum) viewerFrameNum.textContent = currentFrameIndex + 1;
+  if (viewerPrevBtn) viewerPrevBtn.disabled = currentFrameIndex === 0;
+  if (viewerNextBtn) viewerNextBtn.disabled = currentFrameIndex === frameUrls.length - 1;
 
   document.querySelectorAll("[data-frame-index]").forEach((button) => {
     const isActive = Number(button.dataset.frameIndex) === currentFrameIndex;
@@ -262,5 +285,52 @@ const nextButton = document.querySelector("[data-frame-next]");
 if (prevButton) prevButton.addEventListener("click", () => updateFrame(currentFrameIndex - 1));
 if (nextButton) nextButton.addEventListener("click", () => updateFrame(currentFrameIndex + 1));
 if (frameUrls.length) updateFrame(0);
+
+document.querySelectorAll("[data-event-url]").forEach((row) => {
+  row.addEventListener("click", () => {
+    window.location.href = row.dataset.eventUrl;
+  });
+  row.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      window.location.href = row.dataset.eventUrl;
+    }
+  });
+});
+
+const imageViewerModal = document.getElementById("imageViewerModal");
+const openFrameButton = document.querySelector("[data-frame-open]");
+
+function openImageViewer() {
+  if (!imageViewerModal || !frameUrls.length) return;
+  imageViewerModal.hidden = false;
+  document.body.classList.add("modal-open");
+  updateFrame(currentFrameIndex);
+  imageViewerModal.querySelector(".image-viewer-close")?.focus();
+}
+
+function closeImageViewer() {
+  if (!imageViewerModal) return;
+  imageViewerModal.hidden = true;
+  document.body.classList.remove("modal-open");
+  openFrameButton?.focus();
+}
+
+if (openFrameButton) openFrameButton.addEventListener("click", openImageViewer);
+document.querySelectorAll("[data-image-viewer-close]").forEach((control) => {
+  control.addEventListener("click", closeImageViewer);
+});
+
+const viewerPrevButton = document.querySelector("[data-viewer-prev]");
+const viewerNextButton = document.querySelector("[data-viewer-next]");
+if (viewerPrevButton) viewerPrevButton.addEventListener("click", () => updateFrame(currentFrameIndex - 1));
+if (viewerNextButton) viewerNextButton.addEventListener("click", () => updateFrame(currentFrameIndex + 1));
+
+document.addEventListener("keydown", (event) => {
+  if (!imageViewerModal || imageViewerModal.hidden) return;
+  if (event.key === "Escape") closeImageViewer();
+  if (event.key === "ArrowLeft") updateFrame(currentFrameIndex - 1);
+  if (event.key === "ArrowRight") updateFrame(currentFrameIndex + 1);
+});
 </script>
 {% endblock %}

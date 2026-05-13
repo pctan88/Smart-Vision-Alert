@@ -36,6 +36,10 @@ body {
   color: var(--text);
 }
 
+body.modal-open {
+  overflow: hidden;
+}
+
 a {
   color: inherit;
   text-decoration: none;
@@ -659,21 +663,23 @@ td small {
 
 .event-layout {
   display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(330px, .95fr);
-  gap: 24px;
+  grid-template-columns: minmax(680px, 1fr) minmax(300px, 360px);
+  gap: 16px;
+}
+
+.event-row {
+  cursor: pointer;
+}
+
+.event-row:hover,
+.event-row:focus {
+  background: #202228;
+  outline: none;
 }
 
 .event-table tr.selected {
   box-shadow: inset 3px 0 0 var(--accent);
   background: #1e2127;
-}
-
-.row-action {
-  display: inline-grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  font-size: 24px;
 }
 
 .event-detail-panel {
@@ -1099,6 +1105,21 @@ pre {
   object-fit: contain;
 }
 
+.main-frame-button {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: zoom-in;
+}
+
+.main-frame-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
 .main-frame-display span {
   color: var(--muted);
 }
@@ -1188,6 +1209,13 @@ pre {
 }
 
 /* Event page fixes */
+.event-content {
+  width: min(1440px, calc(100vw - 280px));
+  margin: 0;
+  padding-right: 32px;
+  padding-left: 48px;
+}
+
 .event-table-panel {
   min-width: 0;
 }
@@ -1203,16 +1231,16 @@ pre {
 }
 
 .event-table {
-  min-width: 980px;
+  min-width: 800px;
   table-layout: fixed;
 }
 
 .event-table .col-time {
-  width: 190px;
+  width: 178px;
 }
 
 .event-table .col-camera {
-  width: 190px;
+  width: 10ch;
 }
 
 .event-table .col-event {
@@ -1220,11 +1248,7 @@ pre {
 }
 
 .event-table .col-risk {
-  width: 170px;
-}
-
-.event-table .col-action {
-  width: 80px;
+  width: 126px;
 }
 
 .event-table td {
@@ -1241,12 +1265,18 @@ pre {
 .event-table .cell-camera {
   color: #f0f1f5;
   font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .event-table .cell-risk .risk-badge {
-  min-width: 104px;
+  min-width: 86px;
   justify-content: center;
   white-space: nowrap;
+}
+
+.event-table .cell-event small {
+  max-width: none;
 }
 
 .detail-title-row {
@@ -1270,6 +1300,72 @@ pre {
 .break-value {
   word-break: break-all;
   font-size: 12px;
+}
+
+.image-viewer-modal[hidden] {
+  display: none;
+}
+
+.image-viewer-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 28px;
+}
+
+.image-viewer-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, .82);
+}
+
+.image-viewer-dialog {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  width: min(94vw, 1280px);
+  max-height: 92vh;
+  grid-template-rows: minmax(0, 1fr) auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #0a0b0f;
+  box-shadow: 0 28px 90px rgba(0, 0, 0, .55);
+}
+
+.image-viewer-dialog img {
+  display: block;
+  width: 100%;
+  max-height: calc(92vh - 72px);
+  object-fit: contain;
+}
+
+.image-viewer-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, .24);
+  border-radius: 3px;
+  background: rgba(16, 17, 20, .86);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 24px;
+  line-height: 1;
+}
+
+.image-viewer-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  border-top: 1px solid var(--line-soft);
+  padding: 12px;
 }
 
 @media (max-width: 1120px) {
@@ -1296,6 +1392,13 @@ pre {
 
   .content {
     width: min(100%, 980px);
+  }
+
+  .event-content {
+    width: min(100%, 980px);
+    margin: 0 auto;
+    padding-right: 24px;
+    padding-left: 24px;
   }
 
   .top-links {
@@ -1329,6 +1432,11 @@ pre {
 
   .content {
     padding: 28px 14px 44px;
+  }
+
+  .event-content {
+    padding-right: 14px;
+    padding-left: 14px;
   }
 
   .page-head,
@@ -1393,9 +1501,17 @@ pre {
     min-width: 170px;
   }
 
-  .event-table th:nth-child(3),
-  .event-table td:nth-child(3) {
-    min-width: 260px;
+  .event-table {
+    min-width: 720px;
+  }
+
+  .image-viewer-modal {
+    padding: 12px;
+  }
+
+  .image-viewer-dialog {
+    width: 100%;
+    max-height: 94vh;
   }
 
   .add-user-panel {
