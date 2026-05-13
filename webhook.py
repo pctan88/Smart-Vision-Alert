@@ -138,6 +138,29 @@ def _ensure_portal_users():
                         generate_password_hash(PORTAL_ADMIN_PASSWORD),
                     ),
                 )
+
+            cur.execute("SHOW COLUMNS FROM portal_users")
+            columns = {row["Field"] for row in cur.fetchall()}
+            migrations = [
+                ("display_name", "ADD COLUMN display_name VARCHAR(100) NULL AFTER username"),
+                ("email", "ADD COLUMN email VARCHAR(120) NULL AFTER display_name"),
+                ("role", "ADD COLUMN role VARCHAR(16) NOT NULL DEFAULT 'viewer' AFTER email"),
+                ("is_active", "ADD COLUMN is_active BOOLEAN DEFAULT TRUE AFTER password_hash"),
+                ("created_at", "ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP AFTER is_active"),
+                ("last_login", "ADD COLUMN last_login DATETIME NULL AFTER created_at"),
+            ]
+            for column, statement in migrations:
+                if column not in columns:
+                    cur.execute(f"ALTER TABLE portal_users {statement}")
+
+            cur.execute(
+                """UPDATE portal_users
+                   SET role = COALESCE(NULLIF(role, ''), 'admin'),
+                       is_active = COALESCE(is_active, TRUE),
+                       display_name = COALESCE(NULLIF(display_name, ''), username)
+                   WHERE username = %s""",
+                (PORTAL_ADMIN_USERNAME,),
+            )
     finally:
         db.close()
 
