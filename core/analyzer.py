@@ -582,10 +582,10 @@ class SafetyAnalyzer:
 
             log.warning(f"Could not parse Gemini response as JSON. Raw text: {repr(raw_text)}")
             return AnalysisResult(
-                is_safe=True,
-                risk_level="safe",
-                description="Could not parse AI response",
-                detected_hazards=[],
+                is_safe=False,
+                risk_level="unknown",
+                description="AI response parse failed — manual review required",
+                detected_hazards=["ai_parse_failure"],
                 confidence=0.0,
                 raw_response=raw_text,
             )
