@@ -30,6 +30,7 @@ import tempfile
 import subprocess
 import datetime
 import requests
+from contextlib import ExitStack
 from zoneinfo import ZoneInfo
 from typing import Optional
 
@@ -183,15 +184,29 @@ def a2_is_processed(file_id: str) -> bool:
         return False
 
 
-def a2_save_result(payload: dict, image_path: Optional[str] = None):
+def a2_save_result(
+    payload: dict,
+    image_path: Optional[str] = None,
+    image_paths: Optional[list[str]] = None,
+):
     """POST event result to A2 for DB write + image storage."""
     try:
-        if image_path and os.path.exists(image_path):
-            with open(image_path, "rb") as f:
+        upload_paths = [p for p in (image_paths or []) if p and os.path.exists(p)]
+        if not upload_paths and image_path and os.path.exists(image_path):
+            upload_paths = [image_path]
+
+        if upload_paths:
+            with ExitStack() as stack:
+                files = []
+                for idx, path in enumerate(upload_paths):
+                    fh = stack.enter_context(open(path, "rb"))
+                    filename = f"{idx:03d}_{os.path.basename(path)}"
+                    field_name = "images" if len(upload_paths) > 1 else "image"
+                    files.append((field_name, (filename, fh, "image/jpeg")))
                 requests.post(
                     f"{settings.A2_BASE_URL}/api/save-result",
                     data={"payload": json.dumps(payload)},
-                    files={"image": (os.path.basename(image_path), f, "image/jpeg")},
+                    files=files,
                     headers=_a2_headers(),
                     timeout=30,
                 )
@@ -506,7 +521,10 @@ def run_pipeline(manual_check: bool = False) -> dict:
             alert_image_path = capture["alert_image"] or (
                 capture["all_frames"][0] if capture["all_frames"] else None
             )
-            a2_save_result(payload, alert_image_path)
+            upload_frames = capture["all_frames"] or (
+                [alert_image_path] if alert_image_path else []
+            )
+            a2_save_result(payload, alert_image_path, image_paths=upload_frames)
 
         results["cameras"].append(cam_name)
 

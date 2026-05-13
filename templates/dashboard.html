@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% block title %}Safety Overview | Smart Vision Alert{% endblock %}
+
+{% block content %}
+<section class="page-head">
+  <div>
+    <h1>Safety Overview</h1>
+    <p>Real-time monitoring and historical analysis of studio environments.</p>
+  </div>
+  <div class="segmented">
+    <a class="active" href="{{ url_for('portal_dashboard') }}">Today</a>
+    <a href="{{ url_for('portal_events', window='7d') }}">7D</a>
+    <a href="{{ url_for('portal_events', window='30d') }}">30D</a>
+  </div>
+</section>
+
+{% if data %}
+<section class="metric-grid">
+  <article class="metric-card">
+    <div class="metric-label">Events Today</div>
+    <strong>{{ data.summary.events_today or 0 }}</strong>
+    <span class="metric-note">Captured event records</span>
+  </article>
+  <article class="metric-card">
+    <div class="metric-label">Alerts Sent</div>
+    <strong>{{ data.summary.alerts_today or 0 }}</strong>
+    <span class="metric-note">Telegram delivery attempts</span>
+  </article>
+  <article class="metric-card danger">
+    <div class="metric-label">Unsafe Incidents</div>
+    <strong>{{ data.summary.unsafe_today or 0 }}</strong>
+    <span class="metric-note">Action required threshold</span>
+  </article>
+  <article class="metric-card health">
+    <div class="metric-label">AI Health Monitor</div>
+    {% set total = data.summary.total_analyses or 0 %}
+    {% set failures = data.summary.ai_parse_failures or 0 %}
+    {% set efficiency = (((total - failures) / total * 100) if total else 100) | round(1) %}
+    <strong>{{ efficiency }}%</strong>
+    <div class="progress"><span style="width: {{ efficiency }}%"></span></div>
+    <span class="metric-note">{{ failures }} parsing errors</span>
+  </article>
+</section>
+
+<section class="dashboard-grid">
+  <article class="panel chart-panel">
+    <header class="panel-head">
+      <h2>7-Day Event Analysis</h2>
+      <div class="legend">
+        <span><i class="safe-dot"></i>Safe</span>
+        <span><i class="risk-dot"></i>At-Risk</span>
+      </div>
+    </header>
+    <div class="chart-shell" aria-label="7-day event chart">
+      <div class="chart-y-title">Events</div>
+      <div class="chart-grid">
+        <div class="chart-y-axis">
+          {% for tick in data.chart_ticks %}
+          <span>{{ tick }}</span>
+          {% endfor %}
+        </div>
+        <div class="chart-plot" style="--tick-count: {{ data.chart_ticks|length - 1 }}">
+          {% for tick in data.chart_ticks %}
+          <i class="grid-line" style="top: {{ ((data.chart_max - tick) / data.chart_max * 100) if data.chart_max else 100 }}%"></i>
+          {% endfor %}
+          {% for day in data.events_by_day %}
+          <div class="bar-item" title="{{ day.date_label }}: {{ day.total }} event(s)">
+            <div class="bar-total-label">{{ day.total }}</div>
+            <div class="bar-stack">
+              <span class="bar-risk" style="height: {{ day.risk_pct }}%"></span>
+              <span class="bar-safe" style="height: {{ day.safe_pct }}%"></span>
+            </div>
+            <small>{{ day.label }}</small>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="chart-x-title">Day</div>
+    </div>
+  </article>
+
+  <article class="panel camera-events-panel">
+    <header class="panel-head">
+      <h2>Camera Event</h2>
+      <a href="{{ url_for('portal_events') }}">View All →</a>
+    </header>
+    <div class="camera-event-list">
+      <div class="camera-event-header">
+        <span>Camera</span>
+        <span>Last Motion</span>
+        <span>Last Object</span>
+      </div>
+      {% for camera in data.camera_events %}
+      <div class="camera-event-row">
+        <strong>{{ camera.camera_name }}</strong>
+        <span>{{ camera.last_motion_time }}</span>
+        <span>{{ camera.last_object_time }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </article>
+</section>
+
+<section class="panel recent-panel">
+  <header class="panel-head">
+    <h2>Recent Event Feed</h2>
+    <a href="{{ url_for('portal_events') }}">Open Feed →</a>
+  </header>
+  <div class="responsive-table">
+    <table>
+      <thead>
+        <tr>
+          <th>Timestamp</th>
+          <th>Camera</th>
+          <th>Event</th>
+          <th>Risk</th>
+          <th>Confidence</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for event in data.recent_events %}
+        <tr>
+          <td>{{ event.event_time_display }}</td>
+          <td>{{ event.camera_name }}</td>
+          <td>{{ event.event_kind }}</td>
+          <td><span class="risk-badge {{ event.risk_class }}">{{ event.risk_level or 'safe' }}</span></td>
+          <td>{{ ((event.confidence or 0) * 100) | round(0) }}%</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% else %}
+<section class="empty-state">Dashboard data is unavailable.</section>
+{% endif %}
+{% endblock %}

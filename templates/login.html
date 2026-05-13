@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Secure Access | Smart Vision Alert</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='portal.css') }}">
+</head>
+<body class="login-page">
+  <main class="login-wrap">
+    <div class="security-mark">◧</div>
+    <h1>Smart Vision Alert</h1>
+    <p class="login-kicker">Vigilance AI Management Portal</p>
+
+    <section class="login-card" aria-label="Secure access">
+      <h2>Secure Access</h2>
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          <div class="flash-stack login-flash">
+            {% for category, message in messages %}
+              <div class="flash {{ category }}">{{ message }}</div>
+            {% endfor %}
+          </div>
+        {% endif %}
+      {% endwith %}
+
+      <form method="post" class="login-form">
+        <label>
+          <span>Operator ID / Email</span>
+          <input name="username" autocomplete="username" placeholder="Enter ID" required>
+        </label>
+        <label>
+          <span>Authentication Key</span>
+          <input name="password" type="password" autocomplete="current-password" placeholder="Password" required>
+        </label>
+        <label class="check-row">
+          <input name="remember" type="checkbox">
+          <span>Maintain active session</span>
+        </label>
+        <button type="submit">Initialize Session →</button>
+      </form>
+
+      <div class="login-status"><span></span> Core System Online</div>
+    </section>
+
+    <p class="secure-copy">Unauthorized access strictly prohibited. Connection securely encrypted.</p>
+  </main>
+</body>
+</html>

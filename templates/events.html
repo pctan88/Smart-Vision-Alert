@@ -1,0 +1,266 @@
+{% extends "base.html" %}
+{% block title %}Event Feed & Reports | Smart Vision Alert{% endblock %}
+
+{% block content %}
+<section class="page-head event-page-head">
+  <div>
+    <h1>Event Feed & Reports</h1>
+    <p>Real-time analysis of studio hazards and camera events.</p>
+  </div>
+</section>
+
+<section class="event-layout">
+  <article class="panel event-table-panel">
+    <header class="panel-head event-head">
+      <div>
+        <h2>Processed Events</h2>
+        <span>
+          Showing {{ page_start }}-{{ page_end }} of {{ total_events }} entries
+        </span>
+      </div>
+    </header>
+
+    <div class="event-filter-strip">
+      <form method="get" class="filter-bar">
+        <input type="text" name="q" placeholder="Search events..." value="{{ filters.q or '' }}">
+        <select name="window">
+          <option value="24h" {% if filters.window == '24h' %}selected{% endif %}>Last 24 Hours</option>
+          <option value="7d" {% if filters.window == '7d' %}selected{% endif %}>Last 7 Days</option>
+          <option value="30d" {% if filters.window == '30d' %}selected{% endif %}>Last 30 Days</option>
+          <option value="all" {% if filters.window == 'all' %}selected{% endif %}>All Time</option>
+        </select>
+        <select name="camera">
+          <option value="">All Cameras</option>
+          {% for cam in cameras %}
+          <option value="{{ cam.camera_did }}" {% if filters.camera == cam.camera_did|string %}selected{% endif %}>
+            {{ cam.camera_name }}
+          </option>
+          {% endfor %}
+        </select>
+        <select name="risk">
+          <option value="">All Risk Levels</option>
+          <option value="critical" {% if filters.risk == 'critical' %}selected{% endif %}>Critical</option>
+          <option value="high" {% if filters.risk == 'high' %}selected{% endif %}>High</option>
+          <option value="medium" {% if filters.risk == 'medium' %}selected{% endif %}>Medium</option>
+          <option value="low" {% if filters.risk == 'low' %}selected{% endif %}>Low</option>
+          <option value="safe" {% if filters.risk == 'safe' %}selected{% endif %}>Safe</option>
+        </select>
+        <button type="submit">Apply</button>
+      </form>
+    </div>
+
+    {% if events %}
+    <div class="responsive-table event-table-scroll">
+      <table class="event-table">
+        <colgroup>
+          <col class="col-time">
+          <col class="col-camera">
+          <col class="col-event">
+          <col class="col-risk">
+          <col class="col-action">
+        </colgroup>
+        <thead>
+          <tr>
+            <th>Timestamp</th>
+            <th>Camera</th>
+            <th>Detected Event</th>
+            <th>Risk Level</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for event in events %}
+          <tr class="{% if selected and event.file_id == selected.file_id %}selected{% endif %}">
+            <td class="cell-time">{{ event.event_time_display }}</td>
+            <td class="cell-camera">{{ event.camera_name }}</td>
+            <td class="cell-event">
+              <strong>{{ event.event_kind }}</strong>
+              <small>{{ event.description or 'No analysis' }}</small>
+            </td>
+            <td class="cell-risk">
+              <span class="risk-badge {{ event.risk_class }}">{{ event.risk_level or 'safe' }}</span>
+            </td>
+            <td>
+              <a
+                class="row-action"
+                href="{{ url_for('portal_events', page=current_page, window=filters.window, camera=filters.camera, risk=filters.risk, q=filters.q, event=event.file_id) }}"
+                aria-label="Open event details"
+              >›</a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <nav class="pagination-wrapper" aria-label="Event pagination">
+      <span class="pagination-info">
+        Page {{ current_page }} of {{ total_pages }}
+      </span>
+      <div class="pagination-nav">
+        {% if current_page > 1 %}
+          <a class="pagination-btn" href="{{ url_for('portal_events', page=1, window=filters.window, camera=filters.camera, risk=filters.risk, q=filters.q) }}">First</a>
+          <a class="pagination-btn" href="{{ url_for('portal_events', page=current_page - 1, window=filters.window, camera=filters.camera, risk=filters.risk, q=filters.q) }}">Prev</a>
+        {% else %}
+          <span class="pagination-btn disabled">First</span>
+          <span class="pagination-btn disabled">Prev</span>
+        {% endif %}
+
+        {% for page_num in page_numbers %}
+          <a
+            class="pagination-btn {% if page_num == current_page %}active{% endif %}"
+            href="{{ url_for('portal_events', page=page_num, window=filters.window, camera=filters.camera, risk=filters.risk, q=filters.q) }}"
+          >{{ page_num }}</a>
+        {% endfor %}
+
+        {% if current_page < total_pages %}
+          <a class="pagination-btn" href="{{ url_for('portal_events', page=current_page + 1, window=filters.window, camera=filters.camera, risk=filters.risk, q=filters.q) }}">Next</a>
+          <a class="pagination-btn" href="{{ url_for('portal_events', page=total_pages, window=filters.window, camera=filters.camera, risk=filters.risk, q=filters.q) }}">Last</a>
+        {% else %}
+          <span class="pagination-btn disabled">Next</span>
+          <span class="pagination-btn disabled">Last</span>
+        {% endif %}
+      </div>
+    </nav>
+    {% else %}
+    <div class="empty-state compact">No events found matching your filters.</div>
+    {% endif %}
+  </article>
+
+  <aside class="panel event-detail-panel">
+    {% if selected %}
+    <header class="panel-head">
+      <h2>Event Details</h2>
+      <span class="risk-badge {{ selected.risk_class }}">{{ selected.risk_level or 'safe' }}</span>
+    </header>
+
+    <section class="detail-section">
+      <div class="detail-title-row">
+        <h3>Captured Frames</h3>
+        <span>{{ available_frames }} available / {{ selected.frames_saved or 0 }} saved</span>
+      </div>
+
+      <div class="main-frame-display" id="mainFrameDisplay">
+        {% if frame_urls %}
+        <img src="{{ frame_urls[0] }}" alt="Captured frame 1" id="mainFrame">
+        {% else %}
+        <span>No frames available in local storage</span>
+        {% endif %}
+      </div>
+
+      {% if frame_urls %}
+      <div class="frame-nav-buttons">
+        <button class="frame-nav-btn" id="framePrevBtn" type="button" data-frame-prev>Prev</button>
+        <span class="frame-counter"><span id="currentFrameNum">1</span> / {{ frame_urls|length }}</span>
+        <button class="frame-nav-btn" id="frameNextBtn" type="button" data-frame-next>Next</button>
+      </div>
+
+      <div class="frames-gallery">
+        <div class="frames-gallery-header">
+          <h4>All Frames</h4>
+          <span class="frame-counter">{{ frame_urls|length }} displayed</span>
+        </div>
+        <div class="frames-container" id="framesContainer">
+          {% for url in frame_urls %}
+          <button
+            class="frame-thumbnail {% if loop.index0 == 0 %}active{% endif %}"
+            type="button"
+            data-frame-index="{{ loop.index0 }}"
+          >
+            <img src="{{ url }}" alt="Frame {{ loop.index }}">
+            <span class="frame-number">{{ loop.index }}</span>
+          </button>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+    </section>
+
+    <section class="detail-section">
+      <h3>Event Information</h3>
+      <div class="detail-grid">
+        <div>
+          <span>File ID</span>
+          <strong class="break-value">{{ selected.file_id }}</strong>
+        </div>
+        <div>
+          <span>Camera</span>
+          <strong>{{ selected.camera_name }}</strong>
+        </div>
+        <div>
+          <span>Event Time</span>
+          <strong>{{ selected.event_time_display }}</strong>
+        </div>
+        <div>
+          <span>Duration</span>
+          <strong>{{ (selected.duration_sec or 0) | round(1) }}s</strong>
+        </div>
+        <div>
+          <span>Frames Saved</span>
+          <strong>{{ selected.frames_saved or 0 }}</strong>
+        </div>
+        <div>
+          <span>Confidence</span>
+          <strong>{{ ((selected.confidence or 0) * 100) | round(1) }}%</strong>
+        </div>
+      </div>
+    </section>
+
+    <section class="detail-section">
+      <h3>AI Analysis Log</h3>
+      <pre>{
+  "risk_level": "{{ selected.risk_level or 'safe' }}",
+  "confidence": {{ selected.confidence or 0 }},
+  "motion_detected": {{ 'true' if selected.motion_detected else 'false' }},
+  "stillness_warn": {{ 'true' if selected.stillness_warn else 'false' }},
+  "model": "{{ selected.model_used or '-' }}",
+  "hazards": {{ selected.hazards or '[]' }}
+}</pre>
+    </section>
+
+    <section class="detail-section">
+      <h3>Description</h3>
+      <p>{{ selected.description or 'No description available.' }}</p>
+    </section>
+    {% else %}
+    <div class="empty-state compact">Select an event to view details.</div>
+    {% endif %}
+  </aside>
+</section>
+
+<script>
+const frameUrls = {{ frame_urls | tojson }};
+let currentFrameIndex = 0;
+
+function updateFrame(index) {
+  if (!frameUrls.length) return;
+  currentFrameIndex = Math.max(0, Math.min(index, frameUrls.length - 1));
+
+  const mainFrame = document.getElementById("mainFrame");
+  const currentFrameNum = document.getElementById("currentFrameNum");
+  const prevBtn = document.getElementById("framePrevBtn");
+  const nextBtn = document.getElementById("frameNextBtn");
+
+  if (mainFrame) mainFrame.src = frameUrls[currentFrameIndex];
+  if (currentFrameNum) currentFrameNum.textContent = currentFrameIndex + 1;
+  if (prevBtn) prevBtn.disabled = currentFrameIndex === 0;
+  if (nextBtn) nextBtn.disabled = currentFrameIndex === frameUrls.length - 1;
+
+  document.querySelectorAll("[data-frame-index]").forEach((button) => {
+    const isActive = Number(button.dataset.frameIndex) === currentFrameIndex;
+    button.classList.toggle("active", isActive);
+    if (isActive) button.scrollIntoView({ block: "nearest", inline: "nearest" });
+  });
+}
+
+document.querySelectorAll("[data-frame-index]").forEach((button) => {
+  button.addEventListener("click", () => updateFrame(Number(button.dataset.frameIndex)));
+});
+
+const prevButton = document.querySelector("[data-frame-prev]");
+const nextButton = document.querySelector("[data-frame-next]");
+if (prevButton) prevButton.addEventListener("click", () => updateFrame(currentFrameIndex - 1));
+if (nextButton) nextButton.addEventListener("click", () => updateFrame(currentFrameIndex + 1));
+if (frameUrls.length) updateFrame(0);
+</script>
+{% endblock %}

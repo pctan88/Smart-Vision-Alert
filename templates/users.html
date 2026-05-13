@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}User Management | Smart Vision Alert{% endblock %}
+
+{% block content %}
+<section class="page-head">
+  <div>
+    <h1>User Management</h1>
+    <p>Manage studio portal access and permissions.</p>
+  </div>
+  <details class="add-user-panel">
+    <summary>Add New Staff</summary>
+    <form method="post" class="user-form">
+      <label>
+        <span>Username</span>
+        <input name="username" required>
+      </label>
+      <label>
+        <span>Display Name</span>
+        <input name="display_name">
+      </label>
+      <label>
+        <span>Email</span>
+        <input name="email" type="email">
+      </label>
+      <label>
+        <span>Role</span>
+        <select name="role">
+          <option value="viewer">Viewer</option>
+          <option value="admin">Admin</option>
+        </select>
+      </label>
+      <label>
+        <span>Password</span>
+        <input name="password" type="password" required>
+      </label>
+      <button type="submit">Create User</button>
+    </form>
+  </details>
+</section>
+
+<section class="panel">
+  <div class="responsive-table">
+    <table class="user-table">
+      <thead>
+        <tr>
+          <th>Username</th>
+          <th>Role</th>
+          <th>Last Login</th>
+          <th>Status</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for user in users %}
+        <tr>
+          <td>
+            <div class="user-cell">
+              <span class="avatar">{{ (user.display_name or user.username)[:2] }}</span>
+              <div>
+                <strong>{{ user.display_name or user.username }}</strong>
+                <small>{{ user.username }}{% if user.email %} · {{ user.email }}{% endif %}</small>
+              </div>
+            </div>
+          </td>
+          <td>
+            <form method="post" action="{{ url_for('portal_user_role', user_id=user.id) }}" class="inline-form">
+              <select name="role" onchange="this.form.submit()" {{ 'disabled' if user.id == current_user.id else '' }}>
+                <option value="viewer" {{ 'selected' if user.role == 'viewer' else '' }}>Viewer</option>
+                <option value="admin" {{ 'selected' if user.role == 'admin' else '' }}>Admin</option>
+              </select>
+            </form>
+          </td>
+          <td>{{ user.last_login_display }}</td>
+          <td>
+            <span class="status-pill {{ 'online' if user.is_active else 'offline' }}">
+              {{ 'Active' if user.is_active else 'Disabled' }}
+            </span>
+          </td>
+          <td>
+            <form method="post" action="{{ url_for('portal_user_toggle', user_id=user.id) }}" class="inline-form">
+              <button type="submit" {{ 'disabled' if user.id == current_user.id else '' }}>
+                {{ 'Disable' if user.is_active else 'Enable' }}
+              </button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

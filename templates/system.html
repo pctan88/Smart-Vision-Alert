@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}System Status | Smart Vision Alert{% endblock %}
+
+{% block content %}
+<section class="page-head">
+  <div>
+    <h1>System Status</h1>
+    <p>Database, capture storage, and portal runtime state.</p>
+  </div>
+</section>
+
+{% if stats %}
+<section class="metric-grid system-grid">
+  <article class="metric-card">
+    <div class="metric-label">Database</div>
+    <strong>{{ stats.database.name }}</strong>
+    <span class="metric-note">{{ stats.database.version }}</span>
+  </article>
+  <article class="metric-card">
+    <div class="metric-label">Portal Role</div>
+    <strong>{{ current_user.role|title }}</strong>
+    <span class="metric-note">{{ current_user.display_name }}</span>
+  </article>
+  <article class="metric-card health">
+    <div class="metric-label">System Pulse</div>
+    <strong>Normal</strong>
+    <span class="metric-note">Flask portal responding</span>
+  </article>
+</section>
+
+<section class="panel">
+  <header class="panel-head">
+    <h2>Database Tables</h2>
+  </header>
+  <div class="responsive-table">
+    <table>
+      <thead>
+        <tr>
+          <th>Table</th>
+          <th>Approx Rows</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for table in stats.tables %}
+        <tr>
+          <td>{{ table.table_name }}</td>
+          <td>{{ table.table_rows or 0 }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% else %}
+<section class="empty-state">System data is unavailable.</section>
+{% endif %}
+{% endblock %}
