@@ -307,7 +307,7 @@ class SafetyAnalyzer:
         self._gen_config = types.GenerateContentConfig(
             temperature=0.1,
             top_p=0.95,
-            max_output_tokens=2048,
+            max_output_tokens=8192,
             response_mime_type="application/json",
             response_schema=AnalysisSchema,
             safety_settings=[
