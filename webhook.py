@@ -139,7 +139,7 @@ def _ensure_portal_users():
                     (
                         PORTAL_ADMIN_USERNAME,
                         "Portal Admin",
-                        generate_password_hash(PORTAL_ADMIN_PASSWORD),
+                        generate_password_hash(PORTAL_ADMIN_PASSWORD, method="pbkdf2:sha256"),
                     ),
                 )
 
@@ -666,7 +666,7 @@ def portal_users():
                             display_name or username,
                             email,
                             role,
-                            generate_password_hash(password),
+                            generate_password_hash(password, method="pbkdf2:sha256"),
                         ),
                     )
                 flash("User created.", "success")
