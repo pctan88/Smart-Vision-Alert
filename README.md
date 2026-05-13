@@ -75,6 +75,55 @@ python main.py
 
 ---
 
+## 🖥️ Run the Portal Locally
+
+The web portal is served by the Flask app in `webhook.py`.
+
+### Start the portal
+
+```bash
+source venv/bin/activate
+WEBHOOK_URL= TELEGRAM_BOT_TOKEN= python webhook.py
+```
+
+The local portal runs at:
+
+```text
+http://127.0.0.1:5001/login
+```
+
+The empty `WEBHOOK_URL` and `TELEGRAM_BOT_TOKEN` values prevent local startup from trying to register a Telegram webhook.
+
+### Default local login
+
+```text
+Username: admin
+Password: admin123
+```
+
+These can be overridden with environment variables:
+
+```bash
+PORTAL_ADMIN_USERNAME=your_admin
+PORTAL_ADMIN_PASSWORD=your_password
+```
+
+### Portal requirements
+
+The portal reads and writes data from MySQL using the database settings in `config/.env`:
+
+```text
+DB_HOST
+DB_PORT
+DB_USER
+DB_PASSWORD
+DB_NAME
+```
+
+If login or dashboard data fails, first confirm MySQL is running and those values are correct.
+
+---
+
 ## 📁 Project Structure
 
 ```

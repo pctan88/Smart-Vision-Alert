@@ -504,25 +504,30 @@ def portal_login():
             flash(f"Database unavailable: {exc}", "error")
             return render_template("login.html")
 
-        if user and check_password_hash(user["password_hash"], password):
-            db = _db()
+        pwhash = user.get("password_hash") if user else None
+        if user and pwhash and check_password_hash(pwhash, password):
             try:
-                conn = db._get_conn()
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "UPDATE portal_users SET last_login = NOW() WHERE id = %s",
-                        (user["id"],),
-                    )
-            finally:
-                db.close()
+                db = _db()
+                try:
+                    conn = db._get_conn()
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            "UPDATE portal_users SET last_login = NOW() WHERE id = %s",
+                            (user["id"],),
+                        )
+                finally:
+                    db.close()
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).error(f"Failed to update last_login: {e}")
 
             session.permanent = remember
             app.permanent_session_lifetime = timedelta(days=14)
             session["user"] = {
-                "id": user["id"],
-                "username": user["username"],
-                "display_name": user["display_name"] or user["username"],
-                "role": user["role"],
+                "id": user.get("id"),
+                "username": user.get("username"),
+                "display_name": user.get("display_name") or user.get("username"),
+                "role": user.get("role", "viewer"),
             }
             return redirect(request.args.get("next") or url_for("portal_dashboard"))
 
