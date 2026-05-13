@@ -23,8 +23,8 @@
   </article>
   <article class="metric-card health">
     <div class="metric-label">System Pulse</div>
-    <strong>Normal</strong>
-    <span class="metric-note">Flask portal responding</span>
+    <strong>{{ stats.pulse.label }}</strong>
+    <span class="metric-note">{{ stats.pulse.message }}</span>
   </article>
 </section>
 
@@ -52,6 +52,13 @@
   </div>
 </section>
 {% else %}
+<section class="metric-grid system-grid">
+  <article class="metric-card danger">
+    <div class="metric-label">System Pulse</div>
+    <strong>{{ pulse.label }}</strong>
+    <span class="metric-note">{{ pulse.message }}</span>
+  </article>
+</section>
 <section class="empty-state">System data is unavailable.</section>
 {% endif %}
 {% endblock %}

@@ -2,10 +2,12 @@ import os
 import sys
 import subprocess
 import requests
+import time
 from pathlib import Path
 from functools import wraps
 from datetime import date, datetime, timedelta
 
+import pymysql
 from flask import (
     Flask,
     abort,
@@ -42,6 +44,7 @@ CAPTURES_ROOT = PROJECT_ROOT / "captures"
 PORTAL_ADMIN_USERNAME = os.getenv("PORTAL_ADMIN_USERNAME", "admin")
 PORTAL_ADMIN_PASSWORD = os.getenv("PORTAL_ADMIN_PASSWORD", "admin123")
 RISK_ORDER = {"critical": 4, "high": 3, "medium": 2, "low": 1, "safe": 0}
+SYSTEM_PULSE_CACHE = {"checked_at": 0, "value": None}
 
 
 def _nice_chart_max(value):
@@ -97,6 +100,51 @@ def _format_dt(value):
 
 def _risk_class(risk_level):
     return (risk_level or "safe").lower()
+
+
+def _database_pulse():
+    """Fast cached DB health check for portal chrome and status pages."""
+    now = time.monotonic()
+    cached = SYSTEM_PULSE_CACHE["value"]
+    if cached and now - SYSTEM_PULSE_CACHE["checked_at"] < 15:
+        return cached
+
+    conn = None
+    try:
+        conn = pymysql.connect(
+            host=settings.DB_HOST,
+            port=settings.DB_PORT,
+            user=settings.DB_USER,
+            password=settings.DB_PASSWORD,
+            database=settings.DB_NAME,
+            charset="utf8mb4",
+            cursorclass=pymysql.cursors.DictCursor,
+            autocommit=True,
+            connect_timeout=2,
+            read_timeout=2,
+            write_timeout=2,
+        )
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1 AS ok")
+            cur.fetchone()
+        value = {
+            "state": "normal",
+            "label": "Normal",
+            "message": "Database reachable",
+        }
+    except Exception as exc:
+        value = {
+            "state": "error",
+            "label": "DB Offline",
+            "message": str(exc),
+        }
+    finally:
+        if conn:
+            conn.close()
+
+    SYSTEM_PULSE_CACHE["checked_at"] = now
+    SYSTEM_PULSE_CACHE["value"] = value
+    return value
 
 
 def _event_kind(event_type):
@@ -479,6 +527,7 @@ def inject_portal_context():
     return {
         "current_user": current_user(),
         "risk_order": RISK_ORDER,
+        "system_pulse": _database_pulse(),
     }
 
 
@@ -727,10 +776,12 @@ def portal_user_role(user_id):
 
 
 @app.route("/system", methods=["GET"])
-@login_required
+@admin_required
 def portal_system():
+    pulse = _database_pulse()
     try:
         stats = {
+            "pulse": pulse,
             "database": _query_one("SELECT DATABASE() AS name, VERSION() AS version"),
             "tables": _query_all("""
                 SELECT table_name, table_rows
@@ -742,7 +793,7 @@ def portal_system():
     except Exception as exc:
         stats = None
         flash(f"System data unavailable: {exc}", "error")
-    return render_template("system.html", active="system", stats=stats)
+    return render_template("system.html", active="system", stats=stats, pulse=pulse)
 
 
 @app.route("/capture-image/<file_id>", methods=["GET"])

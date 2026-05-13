@@ -13,8 +13,6 @@
       <span class="brand-subtitle">Vigilance AI</span>
     </div>
 
-    <a class="report-button" href="{{ url_for('portal_events') }}">+ New Security Report</a>
-
     <nav class="side-nav" aria-label="Portal navigation">
       <a class="nav-item {{ 'active' if active == 'overview' else '' }}" href="{{ url_for('portal_dashboard') }}">
         <span class="nav-icon">▦</span><span>Overview</span>
@@ -22,20 +20,22 @@
       <a class="nav-item {{ 'active' if active == 'events' else '' }}" href="{{ url_for('portal_events') }}">
         <span class="nav-icon">◉</span><span>Event Feed</span>
       </a>
-      {% if current_user and current_user.role == 'admin' %}
-      <a class="nav-item {{ 'active' if active == 'users' else '' }}" href="{{ url_for('portal_users') }}">
-        <span class="nav-icon">◎</span><span>User Management</span>
-      </a>
-      {% endif %}
-      <a class="nav-item {{ 'active' if active == 'system' else '' }}" href="{{ url_for('portal_system') }}">
-        <span class="nav-icon">≡</span><span>System Status</span>
-      </a>
     </nav>
 
     <div class="sidebar-footer">
-      <a class="nav-item compact" href="{{ url_for('portal_system') }}">
-        <span class="nav-icon">⚙</span><span>Settings</span>
-      </a>
+      {% if current_user and current_user.role == 'admin' %}
+      <nav class="side-nav admin-nav" aria-label="Admin navigation">
+        <a class="nav-item compact {{ 'active' if active == 'users' else '' }}" href="{{ url_for('portal_users') }}">
+          <span class="nav-icon">◎</span><span>User Management</span>
+        </a>
+        <a class="nav-item compact {{ 'active' if active == 'system' else '' }}" href="{{ url_for('portal_system') }}">
+          <span class="nav-icon">≡</span><span>System Status</span>
+        </a>
+        <span class="nav-item compact disabled" aria-disabled="true">
+          <span class="nav-icon">⚙</span><span>Settings</span>
+        </span>
+      </nav>
+      {% endif %}
       <form method="post" action="{{ url_for('portal_logout') }}">
         <button class="nav-item compact logout-button" type="submit">
           <span class="nav-icon">↪</span><span>Logout</span>
@@ -48,12 +48,9 @@
     <header class="topbar">
       <button class="menu-button" type="button" data-sidebar-toggle aria-label="Toggle navigation">☰</button>
       <a class="topbar-brand" href="{{ url_for('portal_dashboard') }}">Smart Vision Alert</a>
-      <nav class="top-links" aria-label="Section links">
-        <a href="{{ url_for('portal_events') }}">Live View</a>
-        <a href="{{ url_for('portal_dashboard') }}">Analytics</a>
-        <a href="{{ url_for('portal_events') }}">Reports</a>
-      </nav>
-      <div class="system-pulse">System Pulse: Normal</div>
+      <div class="system-pulse {{ system_pulse.state }}" title="{{ system_pulse.message }}">
+        System Pulse: {{ system_pulse.label }}
+      </div>
       <div class="user-chip" title="{{ current_user.display_name if current_user else '' }}">
         {{ (current_user.display_name if current_user else 'U')[:1] }}
       </div>

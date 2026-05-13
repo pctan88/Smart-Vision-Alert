@@ -64,11 +64,23 @@
           <i class="grid-line" style="top: {{ ((data.chart_max - tick) / data.chart_max * 100) if data.chart_max else 100 }}%"></i>
           {% endfor %}
           {% for day in data.events_by_day %}
-          <div class="bar-item" title="{{ day.date_label }}: {{ day.total }} event(s)">
+          <div
+            class="bar-item"
+            role="button"
+            tabindex="0"
+            aria-label="{{ day.date_label }}: risk {{ day.at_risk }}, normal {{ day.safe }}, total {{ day.total }}"
+            data-chart-bar
+          >
             <div class="bar-total-label">{{ day.total }}</div>
             <div class="bar-stack">
               <span class="bar-risk" style="height: {{ day.risk_pct }}%"></span>
               <span class="bar-safe" style="height: {{ day.safe_pct }}%"></span>
+            </div>
+            <div class="chart-detail {% if loop.first %}edge-start{% elif loop.last %}edge-end{% endif %}" role="status">
+              <strong>{{ day.date_label }}</strong>
+              <span><b>Risk</b>{{ day.at_risk }}</span>
+              <span><b>Normal</b>{{ day.safe }}</span>
+              <em>Total {{ day.total }}</em>
             </div>
             <small>{{ day.label }}</small>
           </div>
@@ -134,4 +146,29 @@
 {% else %}
 <section class="empty-state">Dashboard data is unavailable.</section>
 {% endif %}
+<script>
+document.querySelectorAll("[data-chart-bar]").forEach((bar) => {
+  bar.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const wasActive = bar.classList.contains("active");
+    document.querySelectorAll("[data-chart-bar].active").forEach((item) => {
+      item.classList.remove("active");
+    });
+    bar.classList.toggle("active", !wasActive);
+  });
+
+  bar.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      bar.click();
+    }
+  });
+});
+
+document.addEventListener("click", () => {
+  document.querySelectorAll("[data-chart-bar].active").forEach((bar) => {
+    bar.classList.remove("active");
+  });
+});
+</script>
 {% endblock %}
