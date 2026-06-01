@@ -113,7 +113,7 @@ gcloud run deploy $SERVICE \
   --cpu=1 \
   --concurrency=1 \
   --max-instances=1 \
-  --set-env-vars="GCS_BUCKET=${BUCKET},GCS_SESSION_BLOB=${SESSION_BLOB},XIAOMI_SERVER_REGION=sg,STUDIO_CAMERA_HOST=sg.business.smartcamera.api.io.mi.com,GEMINI_MODEL=gemini-2.5-flash,ALERT_THRESHOLD=medium,ALERT_COOLDOWN_MINUTES=15,LOG_LEVEL=INFO" \
+  --set-env-vars="GCS_BUCKET=${BUCKET},GCS_SESSION_BLOB=${SESSION_BLOB},XIAOMI_SERVER_REGION=sg,STUDIO_CAMERA_HOST=sg.business.smartcamera.api.io.mi.com,GEMINI_MODEL=gemini-2.5-flash,ALERT_THRESHOLD=high,ALERT_COOLDOWN_MINUTES=15,LOG_LEVEL=INFO" \
   --set-secrets="\
 GEMINI_API_KEY=GEMINI_API_KEY:latest,\
 TELEGRAM_BOT_TOKEN=TELEGRAM_BOT_TOKEN:latest,\

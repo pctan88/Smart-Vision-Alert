@@ -32,6 +32,7 @@ class AnalysisResult:
     analysis_mode: str = "single"  # single or multi_frame
     frames_analyzed: int = 1
     people_count: int = 0  # Real people count (excluding mirror reflections)
+    scene_context: str = "unknown"  # empty, solo, small_group, class_group, unknown — for reporting/backtesting
 
     def to_dict(self) -> dict:
         """Convert to dictionary (excluding raw_response for brevity)."""
@@ -54,12 +55,13 @@ class AnalysisResult:
             confidence=float(data.get("confidence", 0.0)),
             motion_detected=data.get("motion_detected", True),
             partial_body_lock=data.get("partial_body_lock", False),
-            partial_body_lock_frames=int(data.get("partial_body_lock_frames", 0)),
+            partial_body_lock_frames=int(data.get("partial_body_lock_frames", 0) or 0),
             partial_body_lock_resolved=data.get("partial_body_lock_resolved", False),
             scene_change_level=data.get("scene_change_level", "unknown"),
             stillness_warning=data.get("stillness_warning", False),
             temporal_description=data.get("temporal_description", ""),
-            people_count=data.get("people_count", 0),
+            people_count=int(data.get("people_count", 0) or 0),
+            scene_context=data.get("scene_context", "unknown"),
         )
 
     @classmethod

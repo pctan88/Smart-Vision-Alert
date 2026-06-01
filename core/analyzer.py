@@ -132,12 +132,20 @@ Aerial dance involves performers using apparatus such as aerial silks, aerial ho
 - Stored bags/items on right side = **permanent fixtures**, not hazards
 - Only flag genuine signs of distress, injury, or equipment failure
 
+Set `scene_context` from real people count:
+- "empty" = no real people
+- "solo" = 1 real person
+- "small_group" = 2 real people
+- "class_group" = 3+ real people
+- "unknown" = unclear
+
 ## Response format:
 Respond ONLY with this JSON (no markdown, no code blocks, just raw JSON):
 {{
     "is_safe": true or false,
     "risk_level": "safe" or "low" or "medium" or "high" or "critical",
     "people_count": integer (real people only in the centre area, not mirror reflections),
+    "scene_context": "empty" or "solo" or "small_group" or "class_group" or "unknown",
     "description": "Brief description of what you observe in the image",
     "detected_hazards": ["list", "of", "specific", "hazards"] or [] if safe,
     "confidence": 0.0 to 1.0
@@ -227,12 +235,20 @@ Add to detected_hazards: "entanglement — [body part] stuck on apparatus for ~X
 "Is each body part moving in a **purposeful, free** way — or does any body part appear
 **unable to move freely** even though the person is trying to move it?"
 
+Set `scene_context` from real people count:
+- "empty" = no real people
+- "solo" = 1 real person
+- "small_group" = 2 real people
+- "class_group" = 3+ real people
+- "unknown" = unclear
+
 ## Response format:
 Respond ONLY with this JSON (no markdown, no code blocks, just raw JSON):
 {{
     "is_safe": true or false,
     "risk_level": "safe" or "low" or "medium" or "high" or "critical",
     "people_count": integer (real people only, not mirror reflections),
+    "scene_context": "empty" or "solo" or "small_group" or "class_group" or "unknown",
     "description": "What you observe across the sequence of images",
     "detected_hazards": ["list", "of", "specific", "hazards"] or [] if safe,
     "confidence": 0.0 to 1.0,
@@ -252,6 +268,22 @@ Respond ONLY with this JSON (no markdown, no code blocks, just raw JSON):
 - Ensure all fields in the schema are present.
 
 ## DECISION GUIDE (apply in order):
+STILLNESS OVERRIDE — CALM GROUP CONTEXT:
+  If stillness_warning=true
+  AND other real people are present
+  AND other people are calmly practicing, stretching, resting, or moving normally nearby
+  AND the still person is on the floor, crash mat, or yoga mat
+  AND the still person is NOT hanging in apparatus:
+    → assign "low", not "medium", "high", or "critical"
+    → reason: resting or holding still floor positions is common in group aerial classes
+
+  Do NOT apply this override if:
+    - the person is hanging motionless in apparatus
+    - the person is face-down, collapsed unnaturally, visibly injured, or in obvious distress
+    - others stop practicing, rush over, assist, gather around, or appear alarmed
+    - the person is unattended and motionless for about 50s or longer
+    - fire, smoke, equipment failure, or clear hazard is visible
+
 ENTANGLEMENT — still stuck at end:
   partial_body_lock_frames 1–2,  resolved=false → "low"
   partial_body_lock_frames 3–4,  resolved=false → "medium"
@@ -270,7 +302,7 @@ FULL-BODY STILLNESS:
 
 NORMAL:
   motion_detected=true + partial_body_lock=false + normal movement → "safe"
-  scene_change_level "none" + person present → "high" or "critical"
+  scene_change_level "none" + person present + solo or unknown context + vulnerable position (hanging/collapsed) → "high" or "critical"
 """
 
 
@@ -278,6 +310,7 @@ class AnalysisSchema(typing.TypedDict):
     is_safe: bool
     risk_level: str
     people_count: int
+    scene_context: str
     description: str
     detected_hazards: list[str]
     confidence: float
@@ -434,12 +467,14 @@ class SafetyAnalyzer:
             result.analysis_mode = "multi_frame"
             result.frames_analyzed = frame_count
 
-            # Escalate risk if person appears completely still
+            # Escalate stillness only when group context is absent. Calm group
+            # floor/mat stillness is handled by the prompt's decision guide.
             if result.stillness_warning and not result.motion_detected:
-                if result.risk_level in ("safe", "low"):
+                if result.risk_level in ("safe", "low") and result.scene_context in ("solo", "unknown"):
                     log.warning(
                         "⚠️ Stillness detected across frames — "
-                        "escalating risk from %s to medium",
+                        "escalating %s scene risk from %s to medium",
+                        result.scene_context,
                         result.risk_level,
                     )
                     result.risk_level = "medium"

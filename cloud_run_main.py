@@ -88,7 +88,7 @@ def save_session_gcs(state: dict):
 # ── ffmpeg frame extraction ────────────────────────────────────────────────────
 
 FRAME_INTERVAL_SECS = 10   # one frame every N seconds evenly across the event
-MAX_CAPTURE_SECS    = 180  # only capture the last N seconds for long events (3 min)
+MAX_CAPTURE_SECS    = 60   # only capture the last N seconds for long events (1 min)
 
 
 def _frames_from_raw_ffmpeg(raw_bytes: bytes, label: str, out_dir: str,
@@ -512,8 +512,11 @@ def run_pipeline(manual_check: bool = False) -> dict:
                     "hazards":              result.detected_hazards,
                     "confidence":           result.confidence,
                     "motion_detected":      result.motion_detected,
+                    "people_count":         result.people_count,
                     "partial_body_lock":    result.partial_body_lock,
                     "partial_body_lock_frames": result.partial_body_lock_frames,
+                    "partial_body_lock_resolved": result.partial_body_lock_resolved,
+                    "scene_context":        result.scene_context,
                     "stillness_warn":       result.stillness_warning,
                 },
                 "alert_sent":   alert_sent,

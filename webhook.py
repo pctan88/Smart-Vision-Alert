@@ -45,6 +45,7 @@ PORTAL_ADMIN_USERNAME = os.getenv("PORTAL_ADMIN_USERNAME", "admin")
 PORTAL_ADMIN_PASSWORD = os.getenv("PORTAL_ADMIN_PASSWORD", "admin123")
 RISK_ORDER = {"critical": 4, "high": 3, "medium": 2, "low": 1, "safe": 0}
 SYSTEM_PULSE_CACHE = {"checked_at": 0, "value": None}
+DATABASE_BOOTSTRAP = {"done": False}
 
 
 def _nice_chart_max(value):
@@ -215,6 +216,30 @@ def _ensure_portal_users():
             )
     finally:
         db.close()
+
+
+def _bootstrap_database():
+    """Create the database tables needed by the portal and callback APIs."""
+    if DATABASE_BOOTSTRAP["done"]:
+        return
+
+    db = _db()
+    try:
+        db.init_tables()
+    finally:
+        db.close()
+
+    _ensure_portal_users()
+    DATABASE_BOOTSTRAP["done"] = True
+
+
+@app.before_request
+def bootstrap_database_once():
+    """Lazily initialize MySQL schema after the Flask app starts."""
+    try:
+        _bootstrap_database()
+    except Exception as exc:
+        app.logger.warning("Database bootstrap skipped: %s", exc)
 
 
 def current_user():
@@ -960,8 +985,13 @@ def api_save_result():
                 "detected_hazards":    analysis.get("hazards", []),
                 "confidence":          analysis.get("confidence", 0.0),
                 "motion_detected":     analysis.get("motion_detected", True),
+                "partial_body_lock":   analysis.get("partial_body_lock", False),
+                "partial_body_lock_frames": analysis.get("partial_body_lock_frames", 0),
+                "partial_body_lock_resolved": analysis.get("partial_body_lock_resolved", False),
                 "stillness_warning":   analysis.get("stillness_warn", False),
                 "temporal_description": "",
+                "people_count":        analysis.get("people_count", 0),
+                "scene_context":       analysis.get("scene_context", "unknown"),
             })
             db.save_analysis(
                 file_id,

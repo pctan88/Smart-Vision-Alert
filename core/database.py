@@ -74,19 +74,24 @@ class EventDB:
 
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS analysis_results (
-                    id              INT AUTO_INCREMENT PRIMARY KEY,
-                    file_id         VARCHAR(64) NOT NULL,
-                    camera_did      VARCHAR(32) NOT NULL,
-                    is_safe         BOOLEAN DEFAULT TRUE,
-                    risk_level      VARCHAR(16) DEFAULT 'safe',
-                    description     TEXT,
-                    hazards         JSON,
-                    confidence      FLOAT DEFAULT 0,
-                    motion_detected BOOLEAN DEFAULT TRUE,
-                    stillness_warn  BOOLEAN DEFAULT FALSE,
-                    segment_label   VARCHAR(32),
-                    model_used      VARCHAR(64),
-                    analyzed_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    id                          INT AUTO_INCREMENT PRIMARY KEY,
+                    file_id                     VARCHAR(64) NOT NULL,
+                    camera_did                  VARCHAR(32) NOT NULL,
+                    is_safe                     BOOLEAN DEFAULT TRUE,
+                    risk_level                  VARCHAR(16) DEFAULT 'safe',
+                    description                 TEXT,
+                    hazards                     JSON,
+                    confidence                  FLOAT DEFAULT 0,
+                    motion_detected             BOOLEAN DEFAULT TRUE,
+                    stillness_warn              BOOLEAN DEFAULT FALSE,
+                    people_count                INT DEFAULT 0,
+                    partial_body_lock           BOOLEAN DEFAULT FALSE,
+                    partial_body_lock_frames    INT DEFAULT 0,
+                    partial_body_lock_resolved  BOOLEAN DEFAULT FALSE,
+                    scene_context               VARCHAR(32) DEFAULT NULL,
+                    segment_label               VARCHAR(32),
+                    model_used                  VARCHAR(64),
+                    analyzed_at                 DATETIME DEFAULT CURRENT_TIMESTAMP,
                     INDEX idx_risk (risk_level, analyzed_at),
                     INDEX idx_file (file_id)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
@@ -115,7 +120,43 @@ class EventDB:
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
             """)
 
+        self.migrate_tables()
         log.info("Database tables initialized")
+
+    def migrate_tables(self):
+        """
+        Apply schema migrations for existing deployments.
+        Adds new columns to analysis_results if they don't already exist.
+        Safe to run repeatedly — each ALTER is skipped if the column exists.
+        """
+        conn = self._get_conn()
+        migrations = [
+            ("people_count",               "ALTER TABLE analysis_results ADD COLUMN people_count INT DEFAULT 0"),
+            ("partial_body_lock",          "ALTER TABLE analysis_results ADD COLUMN partial_body_lock BOOLEAN DEFAULT FALSE"),
+            ("partial_body_lock_frames",   "ALTER TABLE analysis_results ADD COLUMN partial_body_lock_frames INT DEFAULT 0"),
+            ("partial_body_lock_resolved", "ALTER TABLE analysis_results ADD COLUMN partial_body_lock_resolved BOOLEAN DEFAULT FALSE"),
+            ("scene_context",              "ALTER TABLE analysis_results ADD COLUMN scene_context VARCHAR(32) DEFAULT NULL"),
+        ]
+
+        with conn.cursor() as cur:
+            # Get existing columns
+            cur.execute("""
+                SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE()
+                  AND TABLE_NAME = 'analysis_results'
+            """)
+            existing = {row["COLUMN_NAME"] for row in cur.fetchall()}
+
+            added = []
+            for col_name, sql in migrations:
+                if col_name not in existing:
+                    cur.execute(sql)
+                    added.append(col_name)
+
+        if added:
+            log.info(f"DB migration: added columns {added} to analysis_results")
+        else:
+            log.debug("DB migration: analysis_results schema is up to date")
 
     # ── processed events ──────────────────────────────────────────────────────
 
@@ -177,8 +218,10 @@ class EventDB:
                 """INSERT INTO analysis_results
                    (file_id, camera_did, is_safe, risk_level, description,
                     hazards, confidence, motion_detected, stillness_warn,
+                    people_count, partial_body_lock, partial_body_lock_frames,
+                    partial_body_lock_resolved, scene_context,
                     segment_label, model_used)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                 (
                     file_id,
                     camera_did,
@@ -189,6 +232,11 @@ class EventDB:
                     result.confidence,
                     result.motion_detected,
                     result.stillness_warning,
+                    result.people_count,
+                    result.partial_body_lock,
+                    result.partial_body_lock_frames,
+                    result.partial_body_lock_resolved,
+                    getattr(result, "scene_context", None),
                     segment_label,
                     self.settings.GEMINI_MODEL,
                 ),
@@ -214,10 +262,15 @@ class EventDB:
                     detected_hazards=_json.loads(row["hazards"]) if row["hazards"] else [],
                     confidence=row["confidence"],
                     motion_detected=bool(row["motion_detected"]),
+                    partial_body_lock=bool(row.get("partial_body_lock", False)),
+                    partial_body_lock_frames=int(row.get("partial_body_lock_frames", 0) or 0),
+                    partial_body_lock_resolved=bool(row.get("partial_body_lock_resolved", False)),
                     stillness_warning=bool(row["stillness_warn"]),
                     temporal_description="",
                     raw_response="",
-                    analysis_mode="multi_frame"
+                    analysis_mode="multi_frame",
+                    people_count=int(row.get("people_count", 0) or 0),
+                    scene_context=row.get("scene_context") or "unknown",
                 )
         return None
 
