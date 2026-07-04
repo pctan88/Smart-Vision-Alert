@@ -66,12 +66,19 @@ class AnalysisResult:
 
     @classmethod
     def error_result(cls, error_msg: str) -> "AnalysisResult":
-        """Create a result representing an analysis error."""
+        """
+        Create a result representing an analysis error.
+
+        IMPORTANT: an error means the monitor is BLIND — never report it
+        as "safe". risk_level="unknown" lets the pipeline distinguish real
+        assessments from failures and aggregate them into a single
+        "monitor degraded" Telegram warning instead of per-event alerts.
+        """
         return cls(
-            is_safe=True,  # Default to safe on error (avoid false alarms)
-            risk_level="safe",
+            is_safe=False,
+            risk_level="unknown",
             description=f"Analysis error: {error_msg}",
-            detected_hazards=[],
+            detected_hazards=["analysis_error"],
             confidence=0.0,
         )
 

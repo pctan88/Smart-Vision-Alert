@@ -88,7 +88,8 @@ def save_session_gcs(state: dict):
 # ── ffmpeg frame extraction ────────────────────────────────────────────────────
 
 FRAME_INTERVAL_SECS = 10   # one frame every N seconds evenly across the event
-MAX_CAPTURE_SECS    = 60   # only capture the last N seconds for long events (1 min)
+MAX_CAPTURE_SECS    = 40   # only capture the last N seconds for long events (token cost)
+ERROR_ALERT_MIN     = 3    # send a "monitor degraded" warning after N failed analyses in one run
 
 
 def _frames_from_raw_ffmpeg(raw_bytes: bytes, label: str, out_dir: str,
@@ -392,7 +393,9 @@ def run_pipeline(manual_check: bool = False) -> dict:
     else:
         start_ms = now_ms - (EVENT_LOOKBACK * 1000)
 
-    results = {"cameras": [], "total_new": 0, "total_skip": 0}
+    results = {"cameras": [], "total_new": 0, "total_skip": 0, "total_quiet": 0}
+    error_count   = 0  # failed analyses this run (risk_level == "unknown")
+    error_last    = ""
 
     for cam in cameras:
         cam_name = cam.get("name", cam["did"])
@@ -436,6 +439,83 @@ def run_pipeline(manual_check: bool = False) -> dict:
             results["total_new"] += 1
             log.info(f"NEW: {ev.get('eventType', '?')} fid={fid}")
 
+            # ── off-hours SENTRY mode ──────────────────────────────────
+            # Outside operating hours we do NOT go blind: run a cheap
+            # 1-frame check (thumbnail only — no HLS extraction, 1 small
+            # image to Gemini). If a person IS present, fall through to
+            # FULL analysis and force an alert (unexpected presence).
+            # If empty (the usual case: lights, shadows, headlights),
+            # save a lightweight record and move on.
+            event_dt = datetime.datetime.fromtimestamp(
+                ev.get("createTime", 0) / 1000, tz=LOCAL_TZ
+            )
+            off_hours = not (
+                settings.STUDIO_HOURS_START <= event_dt.hour < settings.STUDIO_HOURS_END
+            )
+            off_hours_presence = False
+
+            if off_hours and not manual_check:
+                thumb_dir  = f"/tmp/captures/{cam['did']}/{fid}/thumb"
+                os.makedirs(thumb_dir, exist_ok=True)
+                thumb = download_thumbnail(
+                    state, ev, os.path.join(thumb_dir, "thumb_00.jpg"),
+                    did=cam["did"], model=cam["model"],
+                )
+                scan = None
+                if thumb:
+                    try:
+                        scan = analyzer.analyze(thumb, camera_did=cam.get("did", ""))
+                    except Exception as e:
+                        log.error(f"Off-hours scan failed for {fid}: {e}")
+
+                if scan is not None and scan.risk_level == "unknown":
+                    error_count += 1
+                    error_last   = scan.description
+
+                if thumb is None or scan is None or scan.risk_level == "unknown":
+                    # Pre-check unavailable (no thumbnail / API error) —
+                    # NEVER assume safe: fall through to the full pipeline
+                    # so the event gets a real analysis (or a real, counted
+                    # error), instead of a silent "safe" record.
+                    log.warning(
+                        f"Off-hours pre-check unavailable for {fid} — "
+                        f"falling back to full analysis (fail loud)"
+                    )
+                elif scan.people_count > 0:
+                    off_hours_presence = True
+                    log.warning(
+                        f"🌙 Person detected OUTSIDE operating hours "
+                        f"({event_dt.strftime('%H:%M')}) on {cam_name} — full analysis"
+                    )
+                    # fall through to full capture + multi-frame analysis below
+                else:
+                    # Scan succeeded and confirmed nobody present.
+                    results["total_quiet"] += 1
+                    log.info(f"Off-hours ({event_dt.strftime('%H:%M')}), no person — "
+                             f"lightweight record for {fid}")
+                    a2_save_result({
+                        "file_id":      fid,
+                        "camera_did":   cam["did"],
+                        "camera_name":  cam_name,
+                        "event_type":   ev.get("eventType", ""),
+                        "event_time":   event_dt.isoformat(),
+                        "duration_sec": 0,
+                        "frames_saved": 1,
+                        "capture_dir":  f"captures/studio/{cam['did']}/{fid}",
+                        "analysis": {
+                            "is_safe":       True,
+                            "risk_level":    scan.risk_level,
+                            "description":   scan.description,
+                            "hazards":       ["off_hours_scan"],
+                            "confidence":    scan.confidence,
+                            "people_count":  scan.people_count,
+                            "scene_context": scan.scene_context,
+                        },
+                        "alert_sent":  False,
+                        "telegram_ok": False,
+                    }, thumb)
+                    continue
+
             # ── capture frames ─────────────────────────────────────────
             ev_dir = f"/tmp/captures/{cam['did']}/{fid}"
             try:
@@ -460,25 +540,58 @@ def run_pipeline(manual_check: bool = False) -> dict:
                 log.error(f"AI analysis failed for {fid}: {e}")
                 continue
 
+            # ── failed analysis (API error / parse failure) ────────────
+            # Never treat as "safe"; aggregate into one degraded-monitor
+            # warning at the end of the run instead of per-event alerts.
+            analysis_failed = result.risk_level == "unknown"
+            if analysis_failed:
+                error_count += 1
+                error_last   = result.description
+
+            # ── group-present downgrade ───────────────────────────────
+            # 3+ real people in the studio → others can assist, so cap the
+            # risk at "medium" and do NOT page Telegram. (Threshold is >=3,
+            # not >=2, because Gemini occasionally counts a mirror
+            # reflection as a second person.)
+            group_downgraded = False
+            if (result.people_count >= 3
+                    and result.risk_level in ("high", "critical")):
+                log.info(
+                    f"Group present ({result.people_count} people) — "
+                    f"downgrading {result.risk_level} → medium, no Telegram"
+                )
+                result.risk_level = "medium"
+                result.is_safe    = False
+                result.detected_hazards.append("risk_downgraded_group_present")
+                group_downgraded = True
+
             # ── Telegram alert (FIRST) ─────────────────────────────────
             alert_sent  = False
             telegram_ok = False
             force_alert = manual_check and is_latest
 
-            if force_alert or settings.risk_exceeds_threshold(result.risk_level):
-                # Pick best frame: ask AI for hazard frame, else last frame, else thumbnail
+            # Person in the studio outside operating hours is always
+            # alert-worthy, even if their pose looks "safe".
+            if off_hours_presence and not analysis_failed:
+                result.detected_hazards.append("after_hours_presence")
+                if result.people_count > 0:
+                    result.is_safe = False
+                    if result.risk_level in ("safe", "low"):
+                        result.risk_level = "medium"
+
+            should_alert = (
+                (force_alert
+                 or settings.risk_exceeds_threshold(result.risk_level)
+                 or (off_hours_presence and result.people_count > 0))
+                and not analysis_failed   # degraded-monitor warning handles these
+                and not group_downgraded  # group can assist — record only
+            )
+            if should_alert:
+                # Alert image: last frame (most recent state), else thumbnail.
+                # (identify_best_frame was removed — it re-sent every frame to
+                # Gemini a second time, doubling image cost per alert.)
                 if capture["all_frames"] and result.risk_level != "safe":
-                    try:
-                        best_idx = analyzer.identify_best_frame(
-                            capture["all_frames"], result
-                        )
-                        alert_image = capture["all_frames"][best_idx]
-                        log.info(f"Alert image: best frame [{best_idx}] "
-                                 f"{os.path.basename(alert_image)}")
-                    except Exception as e:
-                        log.warning(f"Best-frame selection failed: {e}")
-                        alert_image = (capture["all_frames"][-1]
-                                       or capture["alert_image"])
+                    alert_image = capture["all_frames"][-1] or capture["alert_image"]
                 else:
                     alert_image = (capture["alert_image"]
                                    or (capture["all_frames"][0]
@@ -492,9 +605,6 @@ def run_pipeline(manual_check: bool = False) -> dict:
                     log.error(f"Telegram alert failed: {e}")
 
             # ── POST results to A2 (AFTER alert) ──────────────────────
-            event_dt    = datetime.datetime.fromtimestamp(
-                ev.get("createTime", 0) / 1000, tz=LOCAL_TZ
-            )
             capture_dir = f"captures/studio/{cam['did']}/{fid}"
             payload = {
                 "file_id":      fid,
@@ -539,9 +649,24 @@ def run_pipeline(manual_check: bool = False) -> dict:
 
         results["cameras"].append(cam_name)
 
+    # ── degraded-monitor warning (fail LOUD, but only once per run) ────────
+    if error_count >= ERROR_ALERT_MIN:
+        try:
+            notifier.send_text(
+                f"⚠️ MONITOR DEGRADED: {error_count} of {results['total_new']} "
+                f"analyses failed this run — the safety monitor may be blind.\n"
+                f"Last error: {error_last[:300]}\n"
+                f"Check Gemini quota/billing and Cloud Run logs."
+            )
+        except Exception as e:
+            log.error(f"Degraded-monitor warning failed: {e}")
+
+    results["analysis_errors"] = error_count
     log.info(
         f"Run complete: {results['total_new']} new, "
-        f"{results['total_skip']} skipped"
+        f"{results['total_skip']} skipped, "
+        f"{results['total_quiet']} quiet-hours, "
+        f"{error_count} analysis errors"
     )
     return results
 

@@ -81,7 +81,11 @@ class Settings:
     # Studio Cameras
     STUDIO_SESSION_FILE: str = os.getenv("STUDIO_SESSION_FILE", "config/.micloud_session_new")
     STUDIO_CAMERA_HOST: str = os.getenv("STUDIO_CAMERA_HOST", "sg.business.smartcamera.api.io.mi.com")
-    STUDIO_HOURS_START: int = int(os.getenv("STUDIO_HOURS_START", "9"))
+    # Confirmed from 2 months of event data: real activity starts ~07:00
+    # (90%+ of 7-8am events contain people) and winds down by ~23:00.
+    # Outside these hours the pipeline runs off-hours SENTRY mode
+    # (cheap 1-frame check; full analysis + alert only if a person is seen).
+    STUDIO_HOURS_START: int = int(os.getenv("STUDIO_HOURS_START", "7"))
     STUDIO_HOURS_END: int = int(os.getenv("STUDIO_HOURS_END", "23"))
 
     # Cloud Run integration

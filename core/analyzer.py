@@ -176,6 +176,18 @@ Aerial movements are naturally fast and dynamic — positions change every few s
 If a body part stays in the same position relative to the apparatus for an unusually long time
 while the rest of the body is actively moving, that is a strong signal of entanglement.
 
+**HOWEVER — INTENTIONAL LOCKS ARE NORMAL TECHNIQUE, NOT ENTANGLEMENT:**
+Foot locks, leg hooks, hip keys, ankle wraps, and knee hangs are core silks/lyra vocabulary.
+A performer will DELIBERATELY keep one foot/leg locked on the apparatus for 30–60s while
+posing, inverting, or transitioning — this is controlled, graceful, and NOT a hazard.
+Do NOT set partial_body_lock=true just because a limb stays fixed on the apparatus.
+Only flag entanglement when you ALSO see at least TWO distress signals:
+- Repeated pull-release attempts at the same contact point that fail to free the limb
+- Body weight hanging AWAY from the stuck point in an uncontrolled, awkward manner
+- Frantic, jerky, or struggling movements (vs smooth, controlled transitions)
+- Unable to descend, bent double toward the stuck point, or reaching for help
+If the person looks controlled, balanced, and deliberate → partial_body_lock=false, risk "safe".
+
 Signs to look for across frames:
 - A limb that **does not change its position relative to the hoop/silk** even as the torso,
   other limbs, or body weight shifts — especially a leg/foot that stays hooked or pressed against
@@ -234,6 +246,17 @@ Add to detected_hazards: "entanglement — [body part] stuck on apparatus for ~X
 ## KEY QUESTION TO ASK FOR EVERY FRAME SEQUENCE:
 "Is each body part moving in a **purposeful, free** way — or does any body part appear
 **unable to move freely** even though the person is trying to move it?"
+
+## COUNTING PEOPLE — MIRRORS AND NIGHT SCENES:
+- **Mirror reflections are NOT people.** A reflection MIRRORS the pose/movement of a real
+  person and appears on the mirror wall (see layout above). If two "people" have identical
+  poses and one is on the mirror wall, count ONE person. When unsure whether a figure is a
+  reflection, do NOT count it.
+- **Dim/night scenes:** a static human-like shape near walls or the storage area that shows
+  ZERO movement across ALL frames is almost certainly stored equipment, hanging silks, or a
+  shadow — set people_count=0 for it unless you can see clear movement between frames or
+  unmistakable human features (face, visible limbs changing position). Lighting changes
+  (lights switching on/off, headlights through windows) are NOT people or hazards.
 
 Set `scene_context` from real people count:
 - "empty" = no real people
@@ -556,11 +579,18 @@ class SafetyAnalyzer:
             return self.analyze(current_path)
 
     # ── Helpers ───────────────────────────────────────────────
+    # Max long-edge pixels for frames sent to Gemini. 768px keeps a frame
+    # within a single Gemini image tile (~4x fewer tokens than full-res 2K)
+    # while remaining plenty for pose/entanglement analysis.
+    MAX_IMAGE_DIM = 768
+
     def _load_image_part(self, image_path: str) -> types.Part:
-        """Load an image file and return it as a Gemini API Part."""
+        """Load an image file, downscale for token cost, return as a Gemini Part."""
         img = Image.open(image_path)
         if img.mode in ("RGBA", "P"):
             img = img.convert("RGB")
+        if max(img.size) > self.MAX_IMAGE_DIM:
+            img.thumbnail((self.MAX_IMAGE_DIM, self.MAX_IMAGE_DIM), Image.LANCZOS)
         buffer = io.BytesIO()
         img.save(buffer, format="JPEG", quality=85)
         return types.Part.from_bytes(
