@@ -56,6 +56,12 @@ app = Flask(__name__)
 LOCAL_TZ       = ZoneInfo("Asia/Kuala_Lumpur")
 EVENT_LOOKBACK = int(os.getenv("EVENT_LOOKBACK", "600"))
 
+# Must run at import time, not gated behind `if __name__ == "__main__"` —
+# gunicorn imports this module as `cloud_run_main:app` and never executes
+# that block, which previously left the logger unconfigured (no handlers,
+# default WARNING level) so every log.info() call was silently dropped.
+setup_logger(level=os.getenv("LOG_LEVEL", "INFO"))
+
 
 # ── GCS session ────────────────────────────────────────────────────────────────
 
@@ -699,6 +705,5 @@ def health():
 
 
 if __name__ == "__main__":
-    setup_logger(level=os.getenv("LOG_LEVEL", "INFO"))
     port = int(os.getenv("PORT", "8080"))
     app.run(host="0.0.0.0", port=port)
