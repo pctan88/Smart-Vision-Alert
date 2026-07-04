@@ -2,6 +2,7 @@ import os
 import sys
 import subprocess
 import requests
+import threading
 import time
 from pathlib import Path
 from functools import wraps
@@ -872,10 +873,36 @@ def telegram_webhook():
                     f"Fetching latest CCTV status..."
                 )
 
-                # Delegate to monitor_studio.py which triggers Cloud Run
-                python_exe  = sys.executable
-                script_path = str(PROJECT_ROOT / "monitor_studio.py")
-                subprocess.Popen([python_exe, script_path, "--manual-check"])
+                # Call Cloud Run /run directly in a background thread.
+                # (Previously delegated to `monitor_studio.py --manual-check`
+                # via subprocess, but that path shares the cron's
+                # /tmp/.sva_monitor.lock — the cron holds it most of the
+                # time, so manual checks silently died on lock contention.)
+                def _manual_cloud_run():
+                    try:
+                        resp = requests.post(
+                            f"{settings.CLOUD_RUN_URL}/run",
+                            json={"manual_check": True},
+                            headers={"X-Secret-Token": settings.CLOUD_RUN_SECRET},
+                            timeout=300,
+                        )
+                        print(f"Manual check Cloud Run response: "
+                              f"{resp.status_code} {resp.text[:200]}")
+                        if not resp.ok:
+                            notifier.send_text(
+                                f"⚠️ Manual check failed: Cloud Run returned "
+                                f"{resp.status_code}. Check Cloud Run logs."
+                            )
+                    except Exception as cr_err:
+                        print(f"Manual check Cloud Run call failed: {cr_err}")
+                        try:
+                            notifier.send_text(
+                                f"⚠️ Manual check failed to reach Cloud Run: {cr_err}"
+                            )
+                        except Exception:
+                            pass
+
+                threading.Thread(target=_manual_cloud_run, daemon=True).start()
 
         return jsonify({"status": "ok"}), 200
 
