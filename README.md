@@ -124,6 +124,287 @@ If login or dashboard data fails, first confirm MySQL is running and those value
 
 ---
 
+## ☁️ Deploy Cloud Run
+
+Cloud Run runs `cloud_run_main.py` and receives environment variables from the
+Cloud Run service configuration, not from local `config/.env`.
+
+### Production target
+
+```text
+Project: itc-monitoring-495910
+Region: asia-southeast1
+Service: smart-vision-alert
+Artifact image: asia-southeast1-docker.pkg.dev/itc-monitoring-495910/smart-vision-alert/monitor
+```
+
+### Push code
+
+```bash
+git status --short
+git push origin main
+```
+
+Only committed tracked files are deployed. Local untracked files such as cookies
+or agent scratch folders should not be committed.
+
+### Manual build and deploy
+
+`cloudbuild.yaml` uses `$COMMIT_SHA` as the Docker image tag. GitHub/Cloud Build
+triggers provide this automatically, but a manual `gcloud builds submit` does
+not. For manual deploys, pass the current commit SHA explicitly:
+
+```bash
+COMMIT_SHA=$(git rev-parse HEAD)
+
+gcloud builds submit \
+  --config cloudbuild.yaml \
+  --substitutions=COMMIT_SHA=${COMMIT_SHA} \
+  --project itc-monitoring-495910 \
+  .
+```
+
+If `COMMIT_SHA` is omitted during manual deploy, Docker fails with an empty image
+tag like:
+
+```text
+invalid argument ".../monitor:" for "-t, --tag" flag
+```
+
+### Update Cloud Run environment variables
+
+Cloud Run env vars are updated separately from local `.env`. For example, to
+send Telegram alerts only for `high` and `critical` risk:
+
+```bash
+gcloud run services update smart-vision-alert \
+  --region=asia-southeast1 \
+  --project=itc-monitoring-495910 \
+  --update-env-vars=ALERT_THRESHOLD=high
+```
+
+Useful env updates follow the same pattern:
+
+```bash
+gcloud run services update smart-vision-alert \
+  --region=asia-southeast1 \
+  --project=itc-monitoring-495910 \
+  --update-env-vars=KEY=value,OTHER_KEY=other_value
+```
+
+Do not use `--set-env-vars` for a small update unless you intend to replace the
+whole env var set. Prefer `--update-env-vars`.
+
+### Verify deployment
+
+Check the active revision, traffic, and image:
+
+```bash
+gcloud run services describe smart-vision-alert \
+  --region=asia-southeast1 \
+  --project=itc-monitoring-495910 \
+  --format='value(status.latestReadyRevisionName,status.traffic[0].revisionName,status.traffic[0].percent,spec.template.spec.containers[0].image)'
+```
+
+Verify one env var without printing secrets:
+
+```bash
+gcloud run services describe smart-vision-alert \
+  --region=asia-southeast1 \
+  --project=itc-monitoring-495910 \
+  --format='json(spec.template.spec.containers[0].env)' \
+  | venv/bin/python -c 'import json,sys; data=json.load(sys.stdin); env=data["spec"]["template"]["spec"]["containers"][0]["env"]; print(next((e.get("value") for e in env if e.get("name")=="ALERT_THRESHOLD"), "MISSING"))'
+```
+
+Expected Telegram alert threshold:
+
+```text
+ALERT_THRESHOLD=high
+```
+
+---
+
+## 🔎 Debug Cloud Run + A2
+
+Use these checks when the portal appears stale, Telegram is quiet, or cron seems
+not to process new events.
+
+### 1. Check A2 code and cron log
+
+On A2 Hosting:
+
+```bash
+cd /home/muarholi/itc/Smart-Vision-Alert
+git status --short
+git log -1 --oneline
+tail -120 /home/muarholi/itc/logs/cron.log
+```
+
+Healthy cron output looks like:
+
+```text
+Triggering Cloud Run (manual_check=False)...
+Cloud Run response: {"result": {"cameras": [], "total_new": 0, "total_skip": 0}, "status": "ok"}
+```
+
+`total_new=0` and `total_skip=0` means Cloud Run ran successfully but did not
+find new Xiaomi events in its lookback window. It does not necessarily mean the
+system is broken.
+
+### 2. Check Cloud Run revision and image
+
+From a machine with `gcloud` access:
+
+```bash
+gcloud run services describe smart-vision-alert \
+  --region=asia-southeast1 \
+  --project=itc-monitoring-495910 \
+  --format='value(status.latestReadyRevisionName,status.url,spec.template.spec.containers[0].image)'
+```
+
+### 3. Check Cloud Run request logs
+
+This confirms whether A2 cron is reaching Cloud Run and what HTTP status Cloud
+Run returned:
+
+```bash
+gcloud logging read \
+  'resource.type="cloud_run_revision" AND resource.labels.service_name="smart-vision-alert"' \
+  --project=itc-monitoring-495910 \
+  --limit=80 \
+  --format='value(timestamp,severity,httpRequest.status,httpRequest.latency,httpRequest.requestUrl)' \
+  --freshness=12h
+```
+
+Healthy cron requests normally show:
+
+```text
+POST /run
+status 200
+userAgent python-requests
+```
+
+Very short latencies, for example under 1 second, usually mean Cloud Run did not
+find any events to analyze. Longer requests usually mean it captured frames and
+called Gemini.
+
+### 4. Check one Cloud Run env var safely
+
+Avoid printing all environment variables because some are secrets. To check only
+`ALERT_THRESHOLD`:
+
+```bash
+gcloud run services describe smart-vision-alert \
+  --region=asia-southeast1 \
+  --project=itc-monitoring-495910 \
+  --format='json(spec.template.spec.containers[0].env)' \
+  | venv/bin/python -c 'import json,sys; data=json.load(sys.stdin); env=data["spec"]["template"]["spec"]["containers"][0]["env"]; print(next((e.get("value") for e in env if e.get("name")=="ALERT_THRESHOLD"), "MISSING"))'
+```
+
+### 5. Check database recency
+
+From a local checkout with DB access configured:
+
+```bash
+venv/bin/python - <<'PY'
+from config.settings import settings
+from core.database import EventDB
+
+db = EventDB(settings)
+conn = db._get_conn()
+try:
+    with conn.cursor() as cur:
+        for table, time_col in [
+            ("processed_events", "processed_at"),
+            ("analysis_results", "analyzed_at"),
+            ("alert_history", "alerted_at"),
+        ]:
+            cur.execute(f"SELECT COUNT(*) AS total, MAX({time_col}) AS latest FROM {table}")
+            print(table, cur.fetchone())
+
+        cur.execute("""
+            SELECT file_id, camera_name, event_type, event_time, processed_at
+            FROM processed_events
+            ORDER BY processed_at DESC
+            LIMIT 8
+        """)
+        print("recent_processed")
+        for row in cur.fetchall():
+            print(row)
+finally:
+    db.close()
+PY
+```
+
+To summarize inserts by hour:
+
+```bash
+venv/bin/python - <<'PY'
+from config.settings import settings
+from core.database import EventDB
+
+db = EventDB(settings)
+conn = db._get_conn()
+try:
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT DATE(processed_at) AS day, HOUR(processed_at) AS hour,
+                   COUNT(*) AS events,
+                   MIN(event_time) AS first_event,
+                   MAX(event_time) AS last_event,
+                   MIN(processed_at) AS first_processed,
+                   MAX(processed_at) AS last_processed
+            FROM processed_events
+            WHERE processed_at >= CURDATE()
+            GROUP BY DATE(processed_at), HOUR(processed_at)
+            ORDER BY day DESC, hour DESC
+        """)
+        for row in cur.fetchall():
+            print(row)
+finally:
+    db.close()
+PY
+```
+
+### 6. Interpret common results
+
+```text
+A2 cron log has regular status=ok responses
+Cloud Run request logs show HTTP 200
+DB has no newer rows
+Xiaomi app has no newer events
+```
+
+This is normal. There are no events to process.
+
+```text
+A2 cron log has regular status=ok responses
+Cloud Run request logs show HTTP 200
+Xiaomi app has newer events
+DB has no newer rows
+```
+
+Likely causes:
+
+```text
+EVENT_LOOKBACK is too short
+Xiaomi event feed is delayed
+Cloud Run is failing per camera but app logs are not visible
+```
+
+Try increasing the Cloud Run lookback window:
+
+```bash
+gcloud run services update smart-vision-alert \
+  --region=asia-southeast1 \
+  --project=itc-monitoring-495910 \
+  --update-env-vars=EVENT_LOOKBACK=3600
+```
+
+Use `--update-env-vars`, not `--set-env-vars`, for single-setting changes.
+
+---
+
 ## 📁 Project Structure
 
 ```
